@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 Módulo: baixar_banco_unico.py
-Script utilitário dedicado para baixar e validar o pacote oficial 'construction-ppe.zip'
-(1.416 imagens e 7.194 caixas válidas nas 4 classes do TCC) diretamente do repositório
-oficial da Ultralytics caso o projeto seja clonado em outro computador, ou utilizar a
-cópia local já validada sem sobrescrever nem gerar pastas aninhadas.
+Script utilitário dedicado para baixar e validar o pacote oficial 'construction-ppe'
+(1.416 imagens e 7.194 caixas válidas nas 4 classes do TCC) para a Base 1.
+
+FONTE OFICIAL DE DOWNLOAD (BLINDADA):
+  - GitHub Releases do TCC: https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/download/v1.0.0/construction-ppe.zip
+  - Fallback Ultralytics: https://github.com/ultralytics/assets/releases/download/v0.0.0/construction-ppe.zip
 
 Uso no terminal:
     python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_banco_unico.py"
@@ -19,7 +21,8 @@ import traceback
 import urllib.request
 import argparse
 
-CONSTRUCTION_PPE_URL = "https://github.com/ultralytics/assets/releases/download/v0.0.0/construction-ppe.zip"
+URL_RELEASE_TCC = "https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/download/v1.0.0/construction-ppe.zip"
+URL_ULTRALYTICS_FALLBACK = "https://github.com/ultralytics/assets/releases/download/v0.0.0/construction-ppe.zip"
 
 
 def pausar_se_interativo(forcar_sem_pausa=False, houve_erro=False):
@@ -69,28 +72,38 @@ def contar_imagens_extraidas(extracted_dir):
     return (tr + va + te), tr, va, te
 
 
-def tentar_sincronizar_de_projeto_epi(extracted_dir):
-    """
-    Caso a base local em 'Base e treinamento/datasets/raw/construction-ppe' esteja ausente
-    ou incompleta, verifica se a pasta irmã 'Projeto_EPI/datasets/raw/construction-ppe'
-    possui as 1.416 imagens completas do TCC e sincroniza automaticamente.
-    """
-    raiz_workspace = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(extracted_dir))))
-    candidato = os.path.join(raiz_workspace, "Projeto_EPI", "datasets", "raw", "construction-ppe")
-    if os.path.isdir(candidato):
-        tot, tr, va, te = contar_imagens_extraidas(candidato)
+def tentar_copiar_de_pasta_local(extracted_dir, zip_dest):
+    """Verifica se as 1.416 imagens ou o .zip já existem no computador."""
+    # Candidato 1: Desktop
+    user_home = os.path.expanduser("~")
+    possiveis_zips = [
+        os.path.join(user_home, "OneDrive - Frilog Transportes", "Área de Trabalho", "construction-ppe.zip"),
+        os.path.join(user_home, "Desktop", "construction-ppe.zip"),
+    ]
+    for p_zip in possiveis_zips:
+        if os.path.exists(p_zip) and os.path.getsize(p_zip) > 100 * 1024 * 1024:
+            print(f"  [*] Encontrado pacote original em: {p_zip}")
+            shutil.copy2(p_zip, zip_dest)
+            return True
+
+    # Candidato 2: Projeto_EPI
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    raiz_ws = os.path.dirname(base_dir)
+    candidato_dir = os.path.join(raiz_ws, "Projeto_EPI", "datasets", "raw", "construction-ppe")
+    if os.path.isdir(candidato_dir):
+        tot, tr, va, te = contar_imagens_extraidas(candidato_dir)
         if tot == 1416:
-            print(f"  [*] Encontrada base local íntegra em: {candidato} (1.416 imagens).")
-            print(f"  [*] Sincronizando para: {extracted_dir} ...")
+            print(f"  [*] Sincronizando Base 1 (1.416 imagens) a partir de: {candidato_dir}")
             if os.path.exists(extracted_dir):
                 shutil.rmtree(extracted_dir)
-            shutil.copytree(candidato, extracted_dir)
+            shutil.copytree(candidato_dir, extracted_dir)
             return True
     return False
 
 
 def baixar_arquivo_zip(extrair=True, forcar_download=False):
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    pasta_script = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.dirname(pasta_script)
     raw_dir = os.path.join(base_dir, "datasets", "raw")
     os.makedirs(raw_dir, exist_ok=True)
 
@@ -98,53 +111,68 @@ def baixar_arquivo_zip(extrair=True, forcar_download=False):
     extracted_dir = os.path.join(raw_dir, "construction-ppe")
 
     print("\n" + "=" * 75)
-    print("  ETAPA 1: VERIFICAÇÃO E DOWNLOAD DA BASE 1 (ULTRALYTICS CONSTRUCTION-PPE)")
+    print("  ETAPA 1: AQUISIÇÃO E VALIDAÇÃO DA BASE 1 (CONSTRUCTION-PPE - 1.416 IMAGENS)")
     print("=" * 75)
-    print(f"  -> URL Oficial : {CONSTRUCTION_PPE_URL}")
-    print(f"  -> Arquivo ZIP : {zip_dest}")
-    print(f"  -> Pasta Alvo  : {extracted_dir}")
+    print(f"  -> Release Oficial : {URL_RELEASE_TCC}")
+    print(f"  -> Arquivo Alvo    : {zip_dest}")
+    print(f"  -> Pasta Alvo      : {extracted_dir}")
     print("-" * 75)
 
-    # 1. Verifica se a base de 1.416 imagens do TCC já está presente e íntegra
-    total_atual, tr_atual, va_atual, te_atual = contar_imagens_extraidas(extracted_dir)
-    if total_atual == 1416 and not forcar_download:
-        print(f"  [OK] Base 1 já está presente e 100% íntegra em:\n       {extracted_dir}")
-        print(f"       Total: {total_atual} imagens (Treino: {tr_atual} | Val: {va_atual} | Teste: {te_atual})")
-        print("  [i] Nenhum novo download é necessário (use --forcar-download se quiser baixar novamente).")
+    # 1. Verifica se a base descompactada já está completa (1.416 imagens)
+    tot, tr, va, te = contar_imagens_extraidas(extracted_dir)
+    if tot == 1416 and not forcar_download:
+        print(f"  [OK] Base 1 já validada localmente em:\n       {extracted_dir}")
+        print(f"       Total: {tot} imagens (Treino: {tr} | Validação: {va} | Teste: {te})")
+        print("  [i] Nenhum novo download é necessário.")
         print("=" * 75)
         return zip_dest
 
-    # 2. Se não estiver extraída mas existir na pasta Projeto_EPI do repositório, sincroniza
-    if not forcar_download and tentar_sincronizar_de_projeto_epi(extracted_dir):
-        total_atual, tr_atual, va_atual, te_atual = contar_imagens_extraidas(extracted_dir)
-        print(f"  [OK] Base 1 sincronizada com sucesso ({total_atual} imagens: {tr_atual} treino, {va_atual} val, {te_atual} teste)!")
-        print("=" * 75)
-        return zip_dest
+    # 2. Se não estiver extraída, tenta usar cópia local (Desktop ou Projeto_EPI)
+    if not forcar_download and tentar_copiar_de_pasta_local(extracted_dir, zip_dest):
+        tot, tr, va, te = contar_imagens_extraidas(extracted_dir)
+        if tot == 1416:
+            print(f"  [OK] Base 1 sincronizada com sucesso ({tot} imagens)!")
+            print("=" * 75)
+            return zip_dest
 
-    # 3. Se já existir um arquivo .zip local válido e não foi pedido --forcar-download, extrai dele
-    if os.path.exists(zip_dest) and os.path.getsize(zip_dest) > 50 * 1024 * 1024 and not forcar_download:
+    # 3. Se o .zip já existir localmente
+    if os.path.exists(zip_dest) and os.path.getsize(zip_dest) > 100 * 1024 * 1024 and not forcar_download:
         tam_mb = os.path.getsize(zip_dest) / (1024 * 1024)
         print(f"  [OK] Pacote local 'construction-ppe.zip' encontrado ({tam_mb:.2f} MB).")
     else:
-        print("  [*] Iniciando download do pacote 'construction-ppe.zip' da Ultralytics...")
-
+        # 4. Baixa direto da Release oficial do GitHub
         def _progresso(blocos, tam_bloco, tam_total):
             if tam_total > 0:
-                baixado_mb = (blocos * tam_bloco) / (1024 * 1024)
-                total_mb = tam_total / (1024 * 1024)
-                pct = min(100.0, (baixado_mb / total_mb) * 100.0)
-                print(f"\r  [*] Baixando: {baixado_mb:6.1f} MB / {total_mb:6.1f} MB ({pct:5.1f}%)", end="", flush=True)
+                bx = (blocos * tam_bloco) / (1024 * 1024)
+                tt = tam_total / (1024 * 1024)
+                pct = min(100.0, (bx / tt) * 100.0)
+                print(f"\r  [*] Baixando: {bx:6.1f} MB / {tt:6.1f} MB ({pct:5.1f}%)", end="", flush=True)
 
-        urllib.request.urlretrieve(CONSTRUCTION_PPE_URL, zip_dest, reporthook=_progresso)
-        print(f"\n  [OK] Arquivo 'construction-ppe.zip' salvo em:\n       {zip_dest}")
+        url_sucesso = None
+        for tentativa_url in [URL_RELEASE_TCC, URL_ULTRALYTICS_FALLBACK]:
+            try:
+                print(f"  [*] Baixando pacote oficial de:\n      {tentativa_url}")
+                urllib.request.urlretrieve(tentativa_url, zip_dest, reporthook=_progresso)
+                print(f"\n  [OK] Pacote salvo em: {zip_dest}")
+                url_sucesso = tentativa_url
+                break
+            except Exception as e:
+                print(f"\n  [!] Aviso: Não foi possível obter de {tentativa_url} ({e}). Tentando próxima fonte...")
+
+        if not url_sucesso and not os.path.exists(zip_dest):
+            raise RuntimeError(
+                "Não foi possível baixar o arquivo construction-ppe.zip.\n"
+                f"Publique a Release em: https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/new\n"
+                f"ou copie o arquivo para: {zip_dest}"
+            )
 
     if extrair:
         print(f"  [*] Extraindo conteúdo para: {extracted_dir} ...")
         with zipfile.ZipFile(zip_dest, "r") as zf:
             zf.extractall(extracted_dir)
         corrigir_pasta_aninhada(extracted_dir)
-        total_atual, tr_atual, va_atual, te_atual = contar_imagens_extraidas(extracted_dir)
-        print(f"  [OK] Extração concluída! Imagens detectadas: {total_atual} (Treino: {tr_atual} | Val: {va_atual} | Teste: {te_atual})")
+        tot, tr, va, te = contar_imagens_extraidas(extracted_dir)
+        print(f"  [OK] Extração concluída! Imagens detectadas: {tot} (Treino: {tr} | Val: {va} | Teste: {te})")
 
     print("=" * 75)
     return zip_dest
@@ -153,7 +181,7 @@ def baixar_arquivo_zip(extrair=True, forcar_download=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Baixa e valida o arquivo construction-ppe.zip (Base 1 do TCC)")
     parser.add_argument("--apenas-zip", action="store_true", help="Apenas garante o .zip sem descompactar novamente")
-    parser.add_argument("--forcar-download", action="store_true", help="Força um novo download da internet mesmo se já existir localmente")
+    parser.add_argument("--forcar-download", action="store_true", help="Força novo download mesmo se já existir localmente")
     parser.add_argument("--no-pause", action="store_true", help="Não pausa o terminal ao finalizar")
     args = parser.parse_args()
 
@@ -167,9 +195,6 @@ if __name__ == "__main__":
         print("!" * 75)
         print(f"  -> Tipo do erro : {type(exc).__name__}")
         print(f"  -> Mensagem     : {exc}")
-        print("\n  [Como resolver]:")
-        print("  1. Verifique sua conexão com a internet caso o arquivo .zip ainda não tenha sido baixado.")
-        print("  2. Verifique se há espaço em disco suficiente e permissão de escrita na pasta 'datasets/raw'.")
         print("\n  [Detalhes técnicos (Traceback)]:")
         traceback.print_exc()
         print("!" * 75)
