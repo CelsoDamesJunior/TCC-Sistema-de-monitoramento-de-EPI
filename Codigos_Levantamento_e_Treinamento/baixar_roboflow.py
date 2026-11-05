@@ -4,9 +4,9 @@ Módulo: baixar_roboflow.py
 Realiza a aquisição da Base Complementar 'Roboflow Construction Site Safety'
 (398 imagens e 580 caixas válidas no padrão YOLO .txt).
 
-FONTE OFICIAL DE DOWNLOAD (BLINDADA):
-  - GitHub Releases do TCC: https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/download/v1.0.0/roboflow-safety.zip
-  - Fallback: API Oficial do Roboflow Universe ou Cópia Local
+FONTE OFICIAL DE DOWNLOAD:
+  - GitHub Releases do Projeto: https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/download/v1.0.0/roboflow-safety.zip
+  - Alternativa: API Oficial do Roboflow Universe ou Cópia Local
 
 Uso no terminal:
     python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_roboflow.py"

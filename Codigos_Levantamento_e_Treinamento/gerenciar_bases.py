@@ -24,6 +24,7 @@ from preparar_dados import (
     corrigir_pasta_aninhada,
     pausar_se_interativo,
     CONSTRUCTION_PPE_URL,
+    ROBOFLOW_RELEASE_URL,
     CONSTRUCTION_PPE_DOCS,
     ROBOFLOW_SAFETY_URL,
 )
@@ -60,8 +61,9 @@ def print_summary():
     print("       RELATÓRIO DE STATUS DAS BASES DE DADOS DE EPI (PADRÃO YOLO TXT - TCC2)")
     print("=" * 84)
     print(f"  Base 1 (Principal):    {CONSTRUCTION_PPE_DOCS}")
-    print(f"  Link Direto (.zip):    {CONSTRUCTION_PPE_URL}")
+    print(f"  Release Base 1 (.zip): {CONSTRUCTION_PPE_URL}")
     print(f"  Base 2 (Complementar): {ROBOFLOW_SAFETY_URL}")
+    print(f"  Release Base 2 (.zip): {ROBOFLOW_RELEASE_URL}")
     print("-" * 84)
 
     # 1. Base Principal Bruta (Ultralytics Construction-PPE)

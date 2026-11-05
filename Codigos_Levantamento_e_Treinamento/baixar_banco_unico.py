@@ -4,9 +4,8 @@ Módulo: baixar_banco_unico.py
 Script utilitário dedicado para baixar e validar o pacote oficial 'construction-ppe'
 (1.416 imagens e 7.194 caixas válidas nas 4 classes do TCC) para a Base 1.
 
-FONTE OFICIAL DE DOWNLOAD (BLINDADA):
-  - GitHub Releases do TCC: https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/download/v1.0.0/construction-ppe.zip
-  - Fallback Ultralytics: https://github.com/ultralytics/assets/releases/download/v0.0.0/construction-ppe.zip
+FONTE OFICIAL DE DOWNLOAD:
+  - GitHub Releases do Projeto: https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/download/v1.0.0/construction-ppe.zip
 
 Uso no terminal:
     python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_banco_unico.py"
@@ -21,8 +20,8 @@ import traceback
 import urllib.request
 import argparse
 
-URL_RELEASE_TCC = "https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/download/v1.0.0/construction-ppe.zip"
-URL_ULTRALYTICS_FALLBACK = "https://github.com/ultralytics/assets/releases/download/v0.0.0/construction-ppe.zip"
+CONSTRUCTION_PPE_URL = "https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/download/v1.0.0/construction-ppe.zip"
+URL_RELEASE_TCC = CONSTRUCTION_PPE_URL
 
 
 def pausar_se_interativo(forcar_sem_pausa=False, houve_erro=False):
@@ -148,23 +147,18 @@ def baixar_arquivo_zip(extrair=True, forcar_download=False):
                 pct = min(100.0, (bx / tt) * 100.0)
                 print(f"\r  [*] Baixando: {bx:6.1f} MB / {tt:6.1f} MB ({pct:5.1f}%)", end="", flush=True)
 
-        url_sucesso = None
-        for tentativa_url in [URL_RELEASE_TCC, URL_ULTRALYTICS_FALLBACK]:
-            try:
-                print(f"  [*] Baixando pacote oficial de:\n      {tentativa_url}")
-                urllib.request.urlretrieve(tentativa_url, zip_dest, reporthook=_progresso)
-                print(f"\n  [OK] Pacote salvo em: {zip_dest}")
-                url_sucesso = tentativa_url
-                break
-            except Exception as e:
-                print(f"\n  [!] Aviso: Não foi possível obter de {tentativa_url} ({e}). Tentando próxima fonte...")
-
-        if not url_sucesso and not os.path.exists(zip_dest):
-            raise RuntimeError(
-                "Não foi possível baixar o arquivo construction-ppe.zip.\n"
-                f"Publique a Release em: https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/new\n"
-                f"ou copie o arquivo para: {zip_dest}"
-            )
+        try:
+            print(f"  [*] Baixando pacote oficial de:\n      {URL_RELEASE_TCC}")
+            urllib.request.urlretrieve(URL_RELEASE_TCC, zip_dest, reporthook=_progresso)
+            print(f"\n  [OK] Pacote salvo em: {zip_dest}")
+        except Exception as e:
+            print(f"\n  [!] Aviso: Não foi possível baixar de {URL_RELEASE_TCC} ({e}).")
+            if not os.path.exists(zip_dest):
+                raise RuntimeError(
+                    "Não foi possível baixar o arquivo construction-ppe.zip do GitHub Releases.\n"
+                    f"Verifique a Release v1.0.0 em: https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases\n"
+                    f"ou copie o arquivo para: {zip_dest}"
+                ) from e
 
     if extrair:
         print(f"  [*] Extraindo conteúdo para: {extracted_dir} ...")

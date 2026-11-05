@@ -40,8 +40,9 @@ except ImportError as exc_yaml:
     input("\nPressione ENTER para fechar...")
     raise SystemExit(1) from exc_yaml
 
-# URLs Oficiais das Bases Nativas no Padrão YOLO (.txt) utilizadas no TCC (Sem necessidade de conversão XML)
-CONSTRUCTION_PPE_URL = "https://github.com/ultralytics/assets/releases/download/v0.0.0/construction-ppe.zip"
+# URLs Oficiais das Bases Nativas no Padrão YOLO (.txt) utilizadas no TCC (GitHub Releases do Projeto)
+CONSTRUCTION_PPE_URL = "https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/download/v1.0.0/construction-ppe.zip"
+ROBOFLOW_RELEASE_URL = "https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/download/v1.0.0/roboflow-safety.zip"
 CONSTRUCTION_PPE_DOCS = "https://docs.ultralytics.com/datasets/detect/construction-ppe/"
 ROBOFLOW_SAFETY_URL = "https://universe.roboflow.com/roboflow-universe-projects/construction-site-safety"
 
@@ -227,7 +228,7 @@ def download_single_dataset(base_dir):
 def ensure_roboflow_dataset(base_dir):
     """
     Verifica se a Base 2 (Roboflow Construction Site Safety - 398 imagens) está em
-    datasets/raw/roboflow/Construction-Site-Safety-1; se não estiver, sincroniza de Projeto_EPI se disponível.
+    datasets/raw/roboflow/Construction-Site-Safety-1; se não estiver, sincroniza localmente ou baixa do GitHub Releases do projeto.
     """
     src_rf = os.path.join(base_dir, 'datasets', 'raw', 'roboflow', 'Construction-Site-Safety-1')
     if os.path.isdir(src_rf) and os.path.isdir(os.path.join(src_rf, 'train', 'images')):
@@ -239,6 +240,17 @@ def ensure_roboflow_dataset(base_dir):
         print(f"[*] Sincronizando Base 2 (Roboflow - 398 imagens) a partir de: {alt_rf}")
         os.makedirs(os.path.dirname(src_rf), exist_ok=True)
         shutil.copytree(alt_rf, src_rf)
+        return src_rf
+
+    zip_rf_dest = os.path.join(base_dir, 'datasets', 'raw', 'roboflow', 'roboflow-safety.zip')
+    os.makedirs(os.path.dirname(zip_rf_dest), exist_ok=True)
+    if not os.path.exists(zip_rf_dest):
+        print(f"[*] Baixando Base 2 (Roboflow Safety) do GitHub Releases do projeto:\n    {ROBOFLOW_RELEASE_URL}")
+        urllib.request.urlretrieve(ROBOFLOW_RELEASE_URL, zip_rf_dest)
+    if os.path.exists(zip_rf_dest):
+        print(f"[*] Extraindo Base 2 para: {src_rf}")
+        with zipfile.ZipFile(zip_rf_dest, 'r') as zf:
+            zf.extractall(src_rf)
     return src_rf
 
 
