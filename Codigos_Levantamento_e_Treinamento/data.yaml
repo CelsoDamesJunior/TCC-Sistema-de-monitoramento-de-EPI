@@ -1,0 +1,10 @@
+path: D:/ProjetoFinal2/Projeto_EPI/datasets/processed/unified_tcc
+train: images/train
+val: images/val
+test: images/test
+nc: 4
+names:
+  0: Hardhat
+  1: Safety-Vest
+  2: Person
+  3: Safety-Shoes
