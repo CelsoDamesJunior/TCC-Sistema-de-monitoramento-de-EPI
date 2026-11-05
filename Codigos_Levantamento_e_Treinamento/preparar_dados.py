@@ -1,12 +1,44 @@
-import cv2
+# -*- coding: utf-8 -*-
+"""
+Módulo: preparar_dados.py
+Pipeline de Engenharia de Dados do TCC:
+  1. Verifica e garante a integridade das duas bases nativas no padrão YOLO (.txt):
+     - Base 1 (Principal): Ultralytics Construction-PPE (1.416 imagens e 7.194 caixas válidas)
+     - Base 2 (Complementar): Roboflow Construction Site Safety (398 imagens e 580 caixas válidas)
+  2. Executa deduplicação criptográfica MD5 (64 KB chunks -> 0 duplicatas).
+  3. Padroniza os IDs das 4 classes NR-06 / NR-18 (0: Hardhat, 1: Safety-Vest, 2: Person, 3: Safety-Shoes).
+  4. Aplica redimensionamento 640x640 (cv2.INTER_AREA) e equalização CLAHE no canal L (CIE LAB).
+  5. Gera o dataset consolidado 'unified_tcc' (1.814 imagens e 7.774 caixas) e os manifestos 'data.yaml'.
+
+Uso no terminal:
+    python "Base e treinamento/Codigos_Levantamento_e_Treinamento/preparar_dados.py" --apply-clahe
+"""
+
+import os
+import sys
 import glob
 import hashlib
-import os
 import shutil
-import argparse
-import urllib.request
 import zipfile
-import yaml
+import traceback
+import urllib.request
+import argparse
+
+try:
+    import cv2
+except ImportError as exc_cv2:
+    print("\n[ERRO CRÍTICO] Biblioteca 'opencv-python' (cv2) não encontrada!")
+    print(" -> Instale executando: pip install opencv-python")
+    input("\nPressione ENTER para fechar...")
+    raise SystemExit(1) from exc_cv2
+
+try:
+    import yaml
+except ImportError as exc_yaml:
+    print("\n[ERRO CRÍTICO] Biblioteca 'PyYAML' (yaml) não encontrada!")
+    print(" -> Instale executando: pip install pyyaml")
+    input("\nPressione ENTER para fechar...")
+    raise SystemExit(1) from exc_yaml
 
 # URLs Oficiais das Bases Nativas no Padrão YOLO (.txt) utilizadas no TCC (Sem necessidade de conversão XML)
 CONSTRUCTION_PPE_URL = "https://github.com/ultralytics/assets/releases/download/v0.0.0/construction-ppe.zip"
@@ -31,6 +63,38 @@ ROBOFLOW_CLASS_MAPPING = {
     9: 2,   # Person       -> Person (ID 2)
     11: 3   # Safety Shoes -> Safety-Shoes (ID 3)
 }
+
+
+def pausar_se_interativo(forcar_sem_pausa=False, houve_erro=False):
+    """Evita que a janela feche imediatamente após um erro ou execução via duplo clique."""
+    if forcar_sem_pausa:
+        return
+    try:
+        if houve_erro or (sys.stdin and sys.stdin.isatty()):
+            print("\n" + "-" * 80)
+            input("  [PAUSA] Pressione ENTER para finalizar e fechar esta janela...")
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
+def corrigir_pasta_aninhada(extracted_dir):
+    """
+    Remove aninhamento acidental 'construction-ppe/construction-ppe' caso o .zip tenha sido
+    extraído dentro de uma subpasta de mesmo nome.
+    """
+    subpasta = os.path.join(extracted_dir, "construction-ppe")
+    if os.path.isdir(subpasta) and os.path.isdir(os.path.join(subpasta, "images")):
+        print("  [*] Ajustando subpasta aninhada 'construction-ppe/construction-ppe'...")
+        for item in os.listdir(subpasta):
+            src_item = os.path.join(subpasta, item)
+            dst_item = os.path.join(extracted_dir, item)
+            if os.path.exists(dst_item):
+                if os.path.isdir(dst_item):
+                    shutil.rmtree(dst_item)
+                else:
+                    os.remove(dst_item)
+            shutil.move(src_item, dst_item)
+        shutil.rmtree(subpasta, ignore_errors=True)
 
 
 def apply_clahe(image_path, output_path, target_size=(640, 640), clip_limit=3.0, tile_grid_size=(8, 8)):
@@ -111,19 +175,42 @@ def compute_md5(file_path):
 
 def download_single_dataset(base_dir):
     """
-    Baixa e extrai o banco de dados único oficial Ultralytics Construction-PPE
-    diretamente do repositório oficial (https://github.com/ultralytics/assets/releases/download/v0.0.0/construction-ppe.zip).
+    Garante que o banco principal Ultralytics Construction-PPE (1.416 imagens: 1.132 treino,
+    143 validação e 141 teste) esteja disponível em datasets/raw/construction-ppe.
     """
     raw_dir = os.path.join(base_dir, 'datasets', 'raw')
     os.makedirs(raw_dir, exist_ok=True)
     zip_dest = os.path.join(raw_dir, 'construction-ppe.zip')
     extracted_dir = os.path.join(raw_dir, 'construction-ppe')
 
+    corrigir_pasta_aninhada(extracted_dir)
+
     if os.path.exists(extracted_dir) and os.path.exists(os.path.join(extracted_dir, 'images', 'train')):
-        n_train = len(os.listdir(os.path.join(extracted_dir, 'images', 'train')))
-        if n_train >= 1100:
-            print(f"[OK] Banco único 'construction-ppe' já baixado e extraído em: {extracted_dir}")
+        n_train = len(glob.glob(os.path.join(extracted_dir, 'images', 'train', '*.*')))
+        n_val = len(glob.glob(os.path.join(extracted_dir, 'images', 'val', '*.*')))
+        n_test = len(glob.glob(os.path.join(extracted_dir, 'images', 'test', '*.*')))
+        if (n_train + n_val + n_test) == 1416:
+            print(f"[OK] Base 1 'construction-ppe' já validada em: {extracted_dir} (1.416 imagens)")
             return extracted_dir
+
+    # Tenta sincronizar de Projeto_EPI/datasets/raw/construction-ppe caso esteja disponível no workspace
+    raiz_ws = os.path.dirname(base_dir)
+    alt_ppe = os.path.join(raiz_ws, 'Projeto_EPI', 'datasets', 'raw', 'construction-ppe')
+    if os.path.isdir(alt_ppe) and os.path.isdir(os.path.join(alt_ppe, 'images', 'train')):
+        if len(glob.glob(os.path.join(alt_ppe, 'images', 'train', '*.*'))) == 1132:
+            print(f"[*] Sincronizando Base 1 íntegra (1.416 imagens) a partir de: {alt_ppe}")
+            if os.path.exists(extracted_dir):
+                shutil.rmtree(extracted_dir)
+            shutil.copytree(alt_ppe, extracted_dir)
+            return extracted_dir
+
+    # Se o .zip local já existe, extrai sem baixar novamente (preservando a versão do TCC)
+    if os.path.exists(zip_dest) and os.path.getsize(zip_dest) > 50 * 1024 * 1024:
+        print(f"[*] Extraindo Base 1 a partir do arquivo local: {zip_dest}")
+        with zipfile.ZipFile(zip_dest, 'r') as zf:
+            zf.extractall(extracted_dir)
+        corrigir_pasta_aninhada(extracted_dir)
+        return extracted_dir
 
     print(f"[*] Baixando banco único Ultralytics Construction-PPE de:\n    {CONSTRUCTION_PPE_URL}")
     urllib.request.urlretrieve(CONSTRUCTION_PPE_URL, zip_dest)
@@ -131,9 +218,28 @@ def download_single_dataset(base_dir):
 
     with zipfile.ZipFile(zip_dest, 'r') as zf:
         zf.extractall(extracted_dir)
+    corrigir_pasta_aninhada(extracted_dir)
 
     print(f"[OK] Extração concluída em: {extracted_dir}")
     return extracted_dir
+
+
+def ensure_roboflow_dataset(base_dir):
+    """
+    Verifica se a Base 2 (Roboflow Construction Site Safety - 398 imagens) está em
+    datasets/raw/roboflow/Construction-Site-Safety-1; se não estiver, sincroniza de Projeto_EPI se disponível.
+    """
+    src_rf = os.path.join(base_dir, 'datasets', 'raw', 'roboflow', 'Construction-Site-Safety-1')
+    if os.path.isdir(src_rf) and os.path.isdir(os.path.join(src_rf, 'train', 'images')):
+        return src_rf
+
+    raiz_ws = os.path.dirname(base_dir)
+    alt_rf = os.path.join(raiz_ws, 'Projeto_EPI', 'datasets', 'raw', 'roboflow', 'Construction-Site-Safety-1')
+    if os.path.isdir(alt_rf) and os.path.isdir(os.path.join(alt_rf, 'train', 'images')):
+        print(f"[*] Sincronizando Base 2 (Roboflow - 398 imagens) a partir de: {alt_rf}")
+        os.makedirs(os.path.dirname(src_rf), exist_ok=True)
+        shutil.copytree(alt_rf, src_rf)
+    return src_rf
 
 
 def build_unified_dataset(use_clahe=False, clip_limit=3.0):
@@ -150,10 +256,20 @@ def build_unified_dataset(use_clahe=False, clip_limit=3.0):
       2: Person       (2.314 instâncias: 2.245 Construction-PPE + 69 Roboflow)
       3: Safety-Shoes (1.619 instâncias: 1.597 Construction-PPE + 22 Roboflow)
     """
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    pasta_script = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.dirname(pasta_script)
     src_ppe = download_single_dataset(base_dir)
-    src_rf = os.path.join(base_dir, 'datasets', 'raw', 'roboflow', 'Construction-Site-Safety-1')
+    src_rf = ensure_roboflow_dataset(base_dir)
     out_dir = os.path.join(base_dir, 'datasets', 'processed', 'unified_tcc')
+
+    print("\n" + "=" * 80)
+    print("  INICIANDO PIPELINE DE ENGENHARIA DE DADOS (UNIFIED_TCC - 4 CLASSES)")
+    print("=" * 80)
+    print(f"  -> Filtro CLAHE (CIE LAB) : {'ATIVADO (640x640 INTER_AREA, clipLimit=' + str(clip_limit) + ')' if use_clahe else 'DESATIVADO (cópia direta)'}")
+    print(f"  -> Base 1 (Principal)     : {src_ppe}")
+    print(f"  -> Base 2 (Complementar)  : {src_rf}")
+    print(f"  -> Destino Consolidado    : {out_dir}")
+    print("-" * 80)
 
     # Limpar diretório de saída anterior para garantir pureza das bases nativas YOLO TXT
     if os.path.exists(out_dir):
@@ -167,6 +283,8 @@ def build_unified_dataset(use_clahe=False, clip_limit=3.0):
     split_counts = {'train': 0, 'val': 0, 'test': 0}
     source_counts = {'construction_ppe': 0, 'roboflow_safety': 0}
     class_counts = {0: 0, 1: 0, 2: 0, 3: 0}
+    ppe_split_boxes = {'train': {0: 0, 1: 0, 2: 0, 3: 0}, 'val': {0: 0, 1: 0, 2: 0, 3: 0}, 'test': {0: 0, 1: 0, 2: 0, 3: 0}}
+    rf_split_boxes = {'train': {0: 0, 1: 0, 2: 0, 3: 0}, 'val': {0: 0, 1: 0, 2: 0, 3: 0}, 'test': {0: 0, 1: 0, 2: 0, 3: 0}}
     total_ignored = 0
     duplicates_removed = 0
 
@@ -177,7 +295,10 @@ def build_unified_dataset(use_clahe=False, clip_limit=3.0):
         if not os.path.exists(img_dir):
             continue
 
-        for img_path in sorted(glob.glob(os.path.join(img_dir, '*.*'))):
+        arquivos_split = sorted(glob.glob(os.path.join(img_dir, '*.*')))
+        print(f"  [*] Processando Base 1 (Construction-PPE) - partição '{split}' ({len(arquivos_split)} arquivos)...")
+
+        for img_path in arquivos_split:
             ext = os.path.splitext(img_path)[1].lower()
             if ext not in ['.jpg', '.jpeg', '.png']:
                 continue
@@ -202,6 +323,7 @@ def build_unified_dataset(use_clahe=False, clip_limit=3.0):
             total_ignored += ignored_n
             for cid, cnt in kept_dict.items():
                 class_counts[cid] += cnt
+                ppe_split_boxes[split][cid] += cnt
 
             split_counts[split] += 1
             source_counts['construction_ppe'] += 1
@@ -221,7 +343,10 @@ def build_unified_dataset(use_clahe=False, clip_limit=3.0):
             if not os.path.exists(img_dir):
                 continue
 
-            for img_path in sorted(glob.glob(os.path.join(img_dir, '*.*'))):
+            arquivos_rf = sorted(glob.glob(os.path.join(img_dir, '*.*')))
+            print(f"  [*] Processando Base 2 (Roboflow Safety)  - partição '{rf_split} -> {target_split}' ({len(arquivos_rf)} arquivos)...")
+
+            for img_path in arquivos_rf:
                 ext = os.path.splitext(img_path)[1].lower()
                 if ext not in ['.jpg', '.jpeg', '.png']:
                     continue
@@ -247,9 +372,12 @@ def build_unified_dataset(use_clahe=False, clip_limit=3.0):
                 total_ignored += ignored_n
                 for cid, cnt in kept_dict.items():
                     class_counts[cid] += cnt
+                    rf_split_boxes[target_split][cid] += cnt
 
                 split_counts[target_split] += 1
                 source_counts['roboflow_safety'] += 1
+    else:
+        print(f"  [!] AVISO: Base 2 não encontrada em {src_rf}. Execute baixar_roboflow.py para ter as 1.814 imagens.")
 
     yaml_data = {
         'path': out_dir.replace('\\', '/'),
@@ -268,17 +396,25 @@ def build_unified_dataset(use_clahe=False, clip_limit=3.0):
     with open(yaml_path, 'w', encoding='utf-8') as f:
         yaml.dump(yaml_data, f, sort_keys=False, allow_unicode=True)
 
+    # Atualiza também a cópia local de data.yaml dentro de Codigos_Levantamento_e_Treinamento
+    local_code_yaml = os.path.join(pasta_script, 'data.yaml')
+    with open(local_code_yaml, 'w', encoding='utf-8') as f:
+        yaml.dump(yaml_data, f, sort_keys=False, allow_unicode=True)
+
     # Também atualizar o data.yaml de construction_ppe_tcc
     single_yaml_data = dict(yaml_data)
     single_yaml_data['path'] = single_alias_dir.replace('\\', '/')
     with open(os.path.join(single_alias_dir, 'data.yaml'), 'w', encoding='utf-8') as f:
         yaml.dump(single_yaml_data, f, sort_keys=False, allow_unicode=True)
 
+    tot_ppe_boxes = sum(sum(d.values()) for d in ppe_split_boxes.values())
+    tot_rf_boxes = sum(sum(d.values()) for d in rf_split_boxes.values())
+
     print("\n" + "=" * 80)
     print("[+] DATASET CONSOLIDADO DO TCC (2 BASES NATIVAS PADRÃO YOLO TXT) PREPARADO!")
     print("=" * 80)
-    print(f"    - Base 1 (Principal):    Ultralytics Construction-PPE ({source_counts['construction_ppe']} imagens) -> {CONSTRUCTION_PPE_DOCS}")
-    print(f"    - Base 2 (Complementar): Roboflow Construction Site Safety ({source_counts['roboflow_safety']} imagens) -> {ROBOFLOW_SAFETY_URL}")
+    print(f"    - Base 1 (Principal):    Ultralytics Construction-PPE ({source_counts['construction_ppe']} imagens | {tot_ppe_boxes} caixas)")
+    print(f"    - Base 2 (Complementar): Roboflow Construction Site Safety ({source_counts['roboflow_safety']} imagens | {tot_rf_boxes} caixas)")
     print(f"    - Diretório Consolidado: {out_dir}")
     print(f"    - Partições (Total {sum(split_counts.values())} imagens >= 1.500 recomendadas pela Ultralytics):")
     print(f"        * Treino (train):    {split_counts['train']} imagens")
@@ -292,13 +428,30 @@ def build_unified_dataset(use_clahe=False, clip_limit=3.0):
     print(f"        * 3: Safety-Shoes (Calçados):  {class_counts[3]}")
     print(f"    - Total de Bounding Boxes Válidas: {sum(class_counts.values())} (Expurgadas: {total_ignored} fora de escopo)")
     print(f"    - Manifesto YAML gerado em:        {yaml_path}")
+    print(f"    - Manifesto local sincronizado em: {local_code_yaml}")
     print("=" * 80 + "\n")
     return yaml_path
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Pipeline de Engenharia de Dados (Banco Único Ultralytics Construction-PPE + CLAHE)")
+    parser = argparse.ArgumentParser(description="Pipeline de Engenharia de Dados (Construction-PPE + Roboflow + CLAHE)")
     parser.add_argument("--apply-clahe", action="store_true", help="Aplica redimensionamento 640x640 e CLAHE no canal L (CIE LAB)")
     parser.add_argument("--clip-limit", type=float, default=3.0, help="Limite de corte (clipLimit) do CLAHE (padrão: 3.0)")
+    parser.add_argument("--no-pause", action="store_true", help="Não pausa o terminal ao finalizar")
     args = parser.parse_args()
-    build_unified_dataset(use_clahe=args.apply_clahe, clip_limit=args.clip_limit)
+
+    erro_ocorreu = False
+    try:
+        build_unified_dataset(use_clahe=args.apply_clahe, clip_limit=args.clip_limit)
+    except Exception as exc:
+        erro_ocorreu = True
+        print("\n" + "!" * 80)
+        print("  [ERRO DETECTADO EM preparar_dados.py]")
+        print("!" * 80)
+        print(f"  -> Tipo do erro : {type(exc).__name__}")
+        print(f"  -> Mensagem     : {exc}")
+        print("\n  [Detalhes técnicos (Traceback)]:")
+        traceback.print_exc()
+        print("!" * 80)
+    finally:
+        pausar_se_interativo(forcar_sem_pausa=args.no_pause, houve_erro=erro_ocorreu)

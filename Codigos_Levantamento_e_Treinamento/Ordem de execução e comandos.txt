@@ -1,0 +1,14 @@
+# Passo 1: Verificar/validar a Base 1 (1.416 imagens)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_banco_unico.py"
+
+# Passo 2: Verificar/validar a Base 2 (398 imagens)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_roboflow.py"
+
+# Passo 3: Auditar o status completo das bases e contagens de caixas (1.814 imagens / 7.774 caixas)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/gerenciar_bases.py" --action status
+
+# Passo 4 (Opcional): Reconstruir do zero o dataset unified_tcc com CLAHE
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/preparar_dados.py" --apply-clahe
+
+# Passo 5: Testar o carregamento do modelo YOLOv26n (260 camadas, 708 tensores) e validar o data.yaml
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --dry-run
