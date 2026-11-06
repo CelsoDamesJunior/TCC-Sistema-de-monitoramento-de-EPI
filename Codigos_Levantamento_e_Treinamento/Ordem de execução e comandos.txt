@@ -4,19 +4,19 @@
 # ==============================================================================
 
 # Passo 1: Baixar/verificar a Base 1 Principal (1.416 imagens e 7.194 caixas via GitHub Release v1.0.0)
-python "./Codigos_Levantamento_e_Treinamento/baixar_banco_unico.py"
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_banco_unico.py"
 
-# Passo 2: Baixar/verificar a Base 2 Complementar (398 imagens e 580 caixas via GitHub Release v1.0.0)
-python "./Codigos_Levantamento_e_Treinamento/baixar_roboflow.py"
+# Passo 2: Baixar/verificar a Base 2 Complementar (398 imagens e 580 caixas via GitHub Release v1.0.0, sem precisar de API key)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_roboflow.py"
 
 # Passo 3: Auditar o status completo das bases e contagens de caixas (1.814 imagens / 7.774 caixas)
-python "./Codigos_Levantamento_e_Treinamento/gerenciar_bases.py" --action status
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/gerenciar_bases.py" --action status
 
 # Passo 4 (Opcional): Reconstruir do zero o dataset unified_tcc com CLAHE (ou executar tudo via gerenciar_bases.py --action all --apply-clahe)
-python "./Codigos_Levantamento_e_Treinamento/preparar_dados.py" --apply-clahe
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/preparar_dados.py" --apply-clahe
 
 # Passo 5: Testar o carregamento do modelo YOLOv26n (260 camadas, 708 tensores) e validar/auto-ajustar o data.yaml
-python "./Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --dry-run
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --dry-run
 
 # Passo 6 (Opcional): Iniciar o treinamento supervisionado completo (100 épocas, imgsz=640, batch=16)
-python "./Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --epochs 100 --imgsz 640 --batch 16
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --epochs 100 --imgsz 640 --batch 16
