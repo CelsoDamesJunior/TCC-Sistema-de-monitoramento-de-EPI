@@ -103,7 +103,9 @@ def treinar_modelo(
     momento=0.937,
     decaimento_peso=0.0005,
     mosaico=1.0,
-    paciencia=15,
+    fechar_mosaico=20,
+    cosseno_lr=True,
+    paciencia=30,
     dispositivo=None,
     pasta_saida=None,
     nome_experimento="ppe_detection_model",
@@ -149,7 +151,7 @@ def treinar_modelo(
     print(f"  -> Pasta Dados : {pasta_banco}")
     print(f"  -> Imagens     : {n_tr + n_va + n_te} totais (Treino: {n_tr} | Val: {n_va} | Teste: {n_te})")
     print(f"  -> Dispositivo : {dispositivo_final} (GPU CUDA ativa: {cuda_disponivel})")
-    print(f"  -> Parâmetros  : epochs={epocas}, batch={tamanho_lote}, imgsz={tamanho_imagem}, optimizer={otimizador}, lr0={taxa_aprendizado}, patience={paciencia}")
+    print(f"  -> Parâmetros  : epochs={epocas}, batch={tamanho_lote}, imgsz={tamanho_imagem}, optimizer={otimizador}, lr0={taxa_aprendizado}, cos_lr={cosseno_lr}, patience={paciencia}")
     print("-" * 80 + "\n")
 
     if (n_tr + n_va) == 0:
@@ -182,7 +184,9 @@ def treinar_modelo(
         lrf=fator_lr_final,
         momentum=momento,
         weight_decay=decaimento_peso,
+        cos_lr=cosseno_lr,
         mosaic=mosaico,
+        close_mosaic=fechar_mosaico,
         patience=paciencia,
         save=True,
         project=pasta_saida,
@@ -211,7 +215,9 @@ if __name__ == "__main__":
     parser.add_argument("--momentum", type=float, default=0.937, help="Momento do otimizador")
     parser.add_argument("--weight-decay", type=float, default=0.0005, help="Decaimento de peso (regularização L2)")
     parser.add_argument("--mosaic", type=float, default=1.0, help="Probabilidade da aumentação Mosaic (0.0 a 1.0)")
-    parser.add_argument("--patience", type=int, default=15, help="Limite de épocas sem melhoria para parada antecipada")
+    parser.add_argument("--close-mosaic", type=int, default=20, help="Épocas finais com Mosaic desativado para refinamento")
+    parser.add_argument("--cos-lr", action="store_true", default=True, help="Ativa agendador cosseno de taxa de aprendizado (ativo por padrão)")
+    parser.add_argument("--patience", type=int, default=30, help="Limite de épocas sem melhoria para parada antecipada")
     parser.add_argument("--device", type=str, default=None, help="Dispositivo de execução ('0' para GPU ou 'cpu')")
     parser.add_argument("--project", type=str, default=None, help="Diretório de saída dos artefatos de treinamento")
     parser.add_argument("--name", type=str, default="ppe_detection_model", help="Identificador do experimento")
@@ -252,6 +258,8 @@ if __name__ == "__main__":
                 momento=args.momentum,
                 decaimento_peso=args.weight_decay,
                 mosaico=args.mosaic,
+                fechar_mosaico=args.close_mosaic,
+                cosseno_lr=args.cos_lr,
                 paciencia=args.patience,
                 dispositivo=args.device,
                 pasta_saida=args.project,
