@@ -2,13 +2,15 @@
 """
 Módulo: preparar_dados.py
 Pipeline de Engenharia de Dados do Projeto:
-  1. Verifica e garante a integridade das duas bases no formato YOLO (.txt):
+  1. Verifica e garante a integridade das três bases nativas no formato YOLO (.txt):
      - Base 1 (Principal): Ultralytics Construction-PPE (1.416 imagens e 7.194 caixas válidas)
-     - Base 2 (Complementar): Roboflow Construction Site Safety (398 imagens e 580 caixas válidas)
+     - Base 2 (Complementar 1): Roboflow Construction Site Safety (398 imagens originais -> filtradas sem falsos negativos)
+     - Base 3 (Complementar 2): Chapian Construction Site PPE Detection (200 imagens originais -> 188 imagens válidas e 1.546 caixas nas 4 classes)
   2. Executa deduplicação criptográfica MD5 (blocos de 64 KB).
-  3. Padroniza os identificadores das 4 classes NR-06 / NR-18 (0: Hardhat, 1: Safety-Vest, 2: Person, 3: Safety-Shoes).
-  4. Aplica redimensionamento espacial 640x640 (cv2.INTER_AREA) e equalização CLAHE no canal L (CIE LAB).
-  5. Gera o dataset consolidado 'unified_tcc' (1.814 imagens e 7.774 caixas) e os manifestos 'data.yaml'.
+  3. Padroniza os identificadores das 4 classes NR-06 / NR-18 (0: Hardhat, 1: Safety-Vest, 2: Person, 3: Safety-Shoes)
+     e remove imagens órfãs/vazias de bases parciais que causariam falsos negativos no treinamento.
+  4. Aplica equalização adaptativa CLAHE no canal L (CIE LAB) preservando a proporção geométrica (ou redimensionando quando solicitado).
+  5. Gera o dataset consolidado 'unified_tcc' e os manifestos 'data.yaml'.
 
 Uso no terminal:
     python "Base e treinamento/Codigos_Levantamento_e_Treinamento/preparar_dados.py" --apply-clahe
@@ -38,11 +40,15 @@ except ImportError as exc_yaml:
     print(" -> Instale executando: pip install pyyaml")
     raise SystemExit(1) from exc_yaml
 
+from baixar_chapian import download_chapian_dataset, URL_RELEASE_CHAPIAN_TCC, HF_CHAPIAN_REPO
+
 # Fontes de distribuição das bases de dados no formato YOLO (.txt)
 CONSTRUCTION_PPE_URL = "https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/download/v1.0.0/construction-ppe.zip"
 ROBOFLOW_RELEASE_URL = "https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/download/v1.0.0/roboflow-safety.zip"
+CHAPIAN_RELEASE_URL = URL_RELEASE_CHAPIAN_TCC
 CONSTRUCTION_PPE_DOCS = "https://docs.ultralytics.com/datasets/detect/construction-ppe/"
 ROBOFLOW_SAFETY_URL = "https://universe.roboflow.com/roboflow-universe-projects/construction-site-safety"
+CHAPIAN_DOCS_URL = f"https://huggingface.co/datasets/{HF_CHAPIAN_REPO}"
 
 # Mapeamento Taxonômico 1: Base Principal Ultralytics Construction-PPE (11 classes -> 4 classes alvo)
 # Original: 0: helmet, 1: gloves, 2: vest, 3: boots, 4: goggles, 5: none, 6: Person, 7: no_helmet, 8: no_goggle, 9: no_gloves, 10: no_boots
@@ -54,13 +60,22 @@ SINGLE_DB_CLASS_MAPPING = {
     3: 3   # boots  -> Safety-Shoes (ID 3)
 }
 
-# Mapeamento Taxonômico 2: Base Complementar Roboflow Construction Site Safety (15 classes -> 4 classes alvo)
-# Original: 0..3: gloves/goggles/mask, 4: Hardhat, 5..8: NO-*, 9: Person, 10: Safety Cone, 11: Safety Shoes, 12: Safety Vest, 13..14: machinery/vehicle
+# Mapeamento Taxonômico 2: Base Complementar 1 Roboflow Construction Site Safety (17 classes -> 4 classes alvo)
+# Original: 0..3: Barricade/Dumpster/EXCAVATORS/Gloves, 4: Hardhat, 5..8: Mask/NO-*, 9: Person, 10: Safety Net, 11: Safety Shoes, 12: Safety Vest, 13..16: vehicles
 ROBOFLOW_CLASS_MAPPING = {
     4: 0,   # Hardhat      -> Hardhat (ID 0)
     12: 1,  # Safety Vest  -> Safety-Vest (ID 1)
     9: 2,   # Person       -> Person (ID 2)
     11: 3   # Safety Shoes -> Safety-Shoes (ID 3)
+}
+
+# Mapeamento Taxonômico 3: Base Complementar 2 Chapian Construction Site PPE Detection (9 classes -> 4 classes alvo)
+# Original: 0: boots, 1: gloves, 2: hardhat, 3: no_boots, 4: no_gloves, 5: no_hardhat, 6: no_vest, 7: person, 8: vest
+CHAPIAN_CLASS_MAPPING = {
+    2: 0,   # hardhat -> Hardhat (ID 0)
+    8: 1,   # vest    -> Safety-Vest (ID 1)
+    7: 2,   # person  -> Person (ID 2)
+    0: 3    # boots   -> Safety-Shoes (ID 3)
 }
 
 
@@ -92,9 +107,9 @@ def corrigir_pasta_aninhada(extracted_dir):
         shutil.rmtree(subpasta, ignore_errors=True)
 
 
-def apply_clahe(image_path, output_path, target_size=(640, 640), clip_limit=3.0, tile_grid_size=(8, 8)):
+def apply_clahe(image_path, output_path, target_size=(640, 640), clip_limit=2.0, tile_grid_size=(8, 8)):
     """
-    Aplica redimensionamento espacial para 640x640 (interpolação INTER_AREA)
+    Aplica redimensionamento espacial (interpolação INTER_AREA)
     e equalização de histograma adaptativa limitada por contraste (CLAHE)
     no canal L do espaço de cores CIE LAB.
     """
@@ -117,17 +132,16 @@ def apply_clahe(image_path, output_path, target_size=(640, 640), clip_limit=3.0,
     return True
 
 
-def standardize_labels(label_path, output_path, class_mapping=None):
+def inspect_and_standardize_labels(label_path, class_mapping=None):
     """
-    Padroniza os identificadores de classes de um arquivo .txt no formato YOLO.
-    class_mapping: dicionário {old_class_id: new_class_id}.
-    Linhas com classes não mapeadas são descartadas.
+    Lê e padroniza em memória os identificadores de classes de um arquivo .txt no formato YOLO.
+    Retorna (new_lines, ignored_count, kept_by_class).
     """
     if class_mapping is None:
         class_mapping = SINGLE_DB_CLASS_MAPPING
 
     if not os.path.exists(label_path):
-        return 0, 0, {0: 0, 1: 0, 2: 0, 3: 0}
+        return [], 0, {0: 0, 1: 0, 2: 0, 3: 0}
 
     with open(label_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
@@ -150,6 +164,14 @@ def standardize_labels(label_path, output_path, class_mapping=None):
         else:
             ignored_count += 1
 
+    return new_lines, ignored_count, kept_by_class
+
+
+def standardize_labels(label_path, output_path, class_mapping=None):
+    """
+    Padroniza os identificadores de classes de um arquivo .txt no formato YOLO e grava em disco.
+    """
+    new_lines, ignored_count, kept_by_class = inspect_and_standardize_labels(label_path, class_mapping)
     with open(output_path, 'w', encoding='utf-8') as f:
         f.writelines(new_lines)
     return len(new_lines), ignored_count, kept_by_class
@@ -242,32 +264,39 @@ def ensure_roboflow_dataset(base_dir):
     return src_rf
 
 
-def build_unified_dataset(use_clahe=True, clip_limit=3.0):
+def ensure_chapian_dataset(base_dir):
+    """
+    Garante a disponibilidade da Base 3 (Chapian PPE Detection: 200 imagens nativas YOLO .txt)
+    em datasets/raw/chapian-ppe.
+    """
+    raw_dir = os.path.join(base_dir, 'datasets', 'raw')
+    return download_chapian_dataset(output_dir=raw_dir)
+
+
+def build_unified_dataset(use_clahe=True, clip_limit=2.0, filtrar_incompletas_rf=True):
     """
     Constrói o dataset consolidado e padronizado (datasets/processed/unified_tcc)
-    integrando as duas bases no padrão YOLO (.txt):
+    integrando as três bases nativas no padrão YOLO (.txt):
       1. Base 1 (Principal): Ultralytics Construction-PPE (1.416 imagens e 7.194 instâncias válidas)
-      2. Base 2 (Complementar): Roboflow Construction Site Safety (398 imagens e 580 instâncias válidas)
-    Totalizando 1.814 imagens únicas e 7.774 caixas delimitadoras nas 4 classes alvo:
-      0: Hardhat      (2.170 instâncias: 1.734 Construction-PPE + 436 Roboflow)
-      1: Safety-Vest  (1.671 instâncias: 1.618 Construction-PPE + 53 Roboflow)
-      2: Person       (2.314 instâncias: 2.245 Construction-PPE + 69 Roboflow)
-      3: Safety-Shoes (1.619 instâncias: 1.597 Construction-PPE + 22 Roboflow)
+      2. Base 2 (Complementar 1): Roboflow Construction Site Safety (filtrada para evitar falsos negativos de Person/Background)
+      3. Base 3 (Complementar 2): Chapian Construction Site PPE Detection (188 imagens válidas com as 4 classes e 1.546 caixas)
     """
     pasta_script = os.path.dirname(os.path.abspath(__file__))
     base_dir = os.path.dirname(pasta_script)
     src_ppe = download_single_dataset(base_dir)
     src_rf = ensure_roboflow_dataset(base_dir)
+    src_ch = ensure_chapian_dataset(base_dir)
     out_dir = os.path.join(base_dir, 'datasets', 'processed', 'unified_tcc')
 
-    print("\n" + "=" * 80)
-    print("  INICIANDO PIPELINE DE ENGENHARIA DE DADOS (UNIFIED_TCC - 4 CLASSES)")
-    print("=" * 80)
+    print("\n" + "=" * 84)
+    print("  INICIANDO PIPELINE DE ENGENHARIA DE DADOS (UNIFIED_TCC - 3 BASES NATIVAS YOLO)")
+    print("=" * 84)
     print(f"  -> Filtro CLAHE (CIE LAB) : {'ATIVADO (640x640 INTER_AREA, clipLimit=' + str(clip_limit) + ')' if use_clahe else 'DESATIVADO (cópia direta)'}")
     print(f"  -> Base 1 (Principal)     : {src_ppe}")
-    print(f"  -> Base 2 (Complementar)  : {src_rf}")
+    print(f"  -> Base 2 (Roboflow)      : {src_rf} (Filtro anti-falso-negativo: {'ATIVO' if filtrar_incompletas_rf else 'INATIVO'})")
+    print(f"  -> Base 3 (Chapian PPE)   : {src_ch}")
     print(f"  -> Destino Consolidado    : {out_dir}")
-    print("-" * 80)
+    print("-" * 84)
 
     if os.path.exists(out_dir):
         shutil.rmtree(out_dir)
@@ -278,12 +307,14 @@ def build_unified_dataset(use_clahe=True, clip_limit=3.0):
 
     seen_hashes = set()
     split_counts = {'train': 0, 'val': 0, 'test': 0}
-    source_counts = {'construction_ppe': 0, 'roboflow_safety': 0}
+    source_counts = {'construction_ppe': 0, 'roboflow_safety': 0, 'chapian_ppe': 0}
     class_counts = {0: 0, 1: 0, 2: 0, 3: 0}
     ppe_split_boxes = {'train': {0: 0, 1: 0, 2: 0, 3: 0}, 'val': {0: 0, 1: 0, 2: 0, 3: 0}, 'test': {0: 0, 1: 0, 2: 0, 3: 0}}
     rf_split_boxes = {'train': {0: 0, 1: 0, 2: 0, 3: 0}, 'val': {0: 0, 1: 0, 2: 0, 3: 0}, 'test': {0: 0, 1: 0, 2: 0, 3: 0}}
+    ch_split_boxes = {'train': {0: 0, 1: 0, 2: 0, 3: 0}, 'val': {0: 0, 1: 0, 2: 0, 3: 0}, 'test': {0: 0, 1: 0, 2: 0, 3: 0}}
     total_ignored = 0
     duplicates_removed = 0
+    empty_or_incomplete_skipped = 0
 
     # 1. Ingestão da Base 1: Ultralytics Construction-PPE (1.416 imagens)
     for split in ['train', 'val', 'test']:
@@ -331,7 +362,7 @@ def build_unified_dataset(use_clahe=True, clip_limit=3.0):
         shutil.rmtree(single_alias_dir)
     shutil.copytree(out_dir, single_alias_dir)
 
-    # 2. Ingestão da Base 2: Roboflow Construction Site Safety (398 imagens)
+    # 2. Ingestão da Base 2: Roboflow Construction Site Safety
     rf_split_map = {'train': 'train', 'valid': 'val', 'test': 'test'}
     if os.path.exists(src_rf):
         for rf_split, target_split in rf_split_map.items():
@@ -348,24 +379,34 @@ def build_unified_dataset(use_clahe=True, clip_limit=3.0):
                 if ext not in ['.jpg', '.jpeg', '.png']:
                     continue
 
+                base_name = os.path.splitext(os.path.basename(img_path))[0]
+                src_lbl = os.path.join(lbl_dir, f"{base_name}.txt")
+                new_lines, ignored_n, kept_dict = inspect_and_standardize_labels(src_lbl, ROBOFLOW_CLASS_MAPPING)
+
+                # Filtra imagens da Base 2 que ficaram sem anotações válidas ou sem a classe Person (evita falsos negativos)
+                if filtrar_incompletas_rf and (len(new_lines) == 0 or kept_dict[2] == 0):
+                    empty_or_incomplete_skipped += 1
+                    total_ignored += ignored_n
+                    continue
+
                 img_hash = compute_md5(img_path)
                 if img_hash in seen_hashes:
                     duplicates_removed += 1
                     continue
                 seen_hashes.add(img_hash)
 
-                base_name = os.path.splitext(os.path.basename(img_path))[0]
                 out_name = f"rf_{base_name}"
                 dst_img = os.path.join(out_dir, 'images', target_split, f"{out_name}.jpg")
                 dst_lbl = os.path.join(out_dir, 'labels', target_split, f"{out_name}.txt")
-                src_lbl = os.path.join(lbl_dir, f"{base_name}.txt")
 
                 if use_clahe:
                     apply_clahe(img_path, dst_img, target_size=(640, 640), clip_limit=clip_limit)
                 else:
                     shutil.copy2(img_path, dst_img)
 
-                _, ignored_n, kept_dict = standardize_labels(src_lbl, dst_lbl, ROBOFLOW_CLASS_MAPPING)
+                with open(dst_lbl, 'w', encoding='utf-8') as fw:
+                    fw.writelines(new_lines)
+
                 total_ignored += ignored_n
                 for cid, cnt in kept_dict.items():
                     class_counts[cid] += cnt
@@ -375,6 +416,61 @@ def build_unified_dataset(use_clahe=True, clip_limit=3.0):
                 source_counts['roboflow_safety'] += 1
     else:
         print(f"  [!] AVISO: Base 2 não localizada em {src_rf}.")
+
+    # 3. Ingestão da Base 3: Chapian Construction Site PPE Detection (Nativa YOLO .txt - 4 Classes)
+    ch_split_map = {'train': 'train', 'valid': 'val', 'test': 'test'}
+    if os.path.exists(src_ch):
+        for ch_split, target_split in ch_split_map.items():
+            img_dir = os.path.join(src_ch, ch_split, 'images')
+            lbl_dir = os.path.join(src_ch, ch_split, 'labels')
+            if not os.path.exists(img_dir):
+                continue
+
+            arquivos_ch = sorted(glob.glob(os.path.join(img_dir, '*.*')))
+            print(f"  [*] Processando Base 3 (Chapian PPE)      - partição '{ch_split} -> {target_split}' ({len(arquivos_ch)} arquivos)...")
+
+            for img_path in arquivos_ch:
+                ext = os.path.splitext(img_path)[1].lower()
+                if ext not in ['.jpg', '.jpeg', '.png']:
+                    continue
+
+                base_name = os.path.splitext(os.path.basename(img_path))[0]
+                src_lbl = os.path.join(lbl_dir, f"{base_name}.txt")
+                new_lines, ignored_n, kept_dict = inspect_and_standardize_labels(src_lbl, CHAPIAN_CLASS_MAPPING)
+
+                # Ignora imagens que continham apenas close-ups de luvas isoladas (sem nenhuma das 4 classes alvo)
+                if len(new_lines) == 0:
+                    empty_or_incomplete_skipped += 1
+                    total_ignored += ignored_n
+                    continue
+
+                img_hash = compute_md5(img_path)
+                if img_hash in seen_hashes:
+                    duplicates_removed += 1
+                    continue
+                seen_hashes.add(img_hash)
+
+                out_name = f"ch_{base_name}"
+                dst_img = os.path.join(out_dir, 'images', target_split, f"{out_name}.jpg")
+                dst_lbl = os.path.join(out_dir, 'labels', target_split, f"{out_name}.txt")
+
+                if use_clahe:
+                    apply_clahe(img_path, dst_img, target_size=(640, 640), clip_limit=clip_limit)
+                else:
+                    shutil.copy2(img_path, dst_img)
+
+                with open(dst_lbl, 'w', encoding='utf-8') as fw:
+                    fw.writelines(new_lines)
+
+                total_ignored += ignored_n
+                for cid, cnt in kept_dict.items():
+                    class_counts[cid] += cnt
+                    ch_split_boxes[target_split][cid] += cnt
+
+                split_counts[target_split] += 1
+                source_counts['chapian_ppe'] += 1
+    else:
+        print(f"  [!] AVISO: Base 3 não localizada em {src_ch}.")
 
     yaml_data = {
         'path': out_dir.replace('\\', '/'),
@@ -404,18 +500,21 @@ def build_unified_dataset(use_clahe=True, clip_limit=3.0):
 
     tot_ppe_boxes = sum(sum(d.values()) for d in ppe_split_boxes.values())
     tot_rf_boxes = sum(sum(d.values()) for d in rf_split_boxes.values())
+    tot_ch_boxes = sum(sum(d.values()) for d in ch_split_boxes.values())
 
-    print("\n" + "=" * 80)
+    print("\n" + "=" * 84)
     print("[+] DATASET CONSOLIDADO (UNIFIED_TCC) PREPARADO COM SUCESSO")
-    print("=" * 80)
-    print(f"    - Base 1 (Principal):    Ultralytics Construction-PPE ({source_counts['construction_ppe']} imagens | {tot_ppe_boxes} caixas)")
-    print(f"    - Base 2 (Complementar): Roboflow Construction Site Safety ({source_counts['roboflow_safety']} imagens | {tot_rf_boxes} caixas)")
-    print(f"    - Diretório Consolidado: {out_dir}")
+    print("=" * 84)
+    print(f"    - Base 1 (Principal):      Ultralytics Construction-PPE ({source_counts['construction_ppe']} imagens | {tot_ppe_boxes} caixas)")
+    print(f"    - Base 2 (Complementar 1): Roboflow Construction Site Safety ({source_counts['roboflow_safety']} imagens | {tot_rf_boxes} caixas)")
+    print(f"    - Base 3 (Complementar 2): Chapian Construction Site PPE ({source_counts['chapian_ppe']} imagens | {tot_ch_boxes} caixas)")
+    print(f"    - Diretório Consolidado:   {out_dir}")
     print(f"    - Partições (Total: {sum(split_counts.values())} imagens):")
-    print(f"        * Treino (train):    {split_counts['train']} imagens")
-    print(f"        * Validação (val):   {split_counts['val']} imagens")
-    print(f"        * Teste (test):      {split_counts['test']} imagens")
-    print(f"    - Duplicatas MD5 removidas: {duplicates_removed}")
+    print(f"        * Treino (train):      {split_counts['train']} imagens")
+    print(f"        * Validação (val):     {split_counts['val']} imagens")
+    print(f"        * Teste (test):        {split_counts['test']} imagens")
+    print(f"    - Duplicatas MD5 removidas:             {duplicates_removed}")
+    print(f"    - Imagens órfãs/incompletas filtradas:  {empty_or_incomplete_skipped}")
     print(f"    - Instâncias Válidas Retidas (4 Classes NR-06 / NR-18):")
     print(f"        * 0: Hardhat (Capacete):       {class_counts[0]}")
     print(f"        * 1: Safety-Vest (Colete):     {class_counts[1]}")
@@ -424,22 +523,27 @@ def build_unified_dataset(use_clahe=True, clip_limit=3.0):
     print(f"    - Total de Bounding Boxes Válidas: {sum(class_counts.values())} (Descartadas fora de escopo: {total_ignored})")
     print(f"    - Manifesto YAML gerado em:        {yaml_path}")
     print(f"    - Manifesto local sincronizado em: {local_code_yaml}")
-    print("=" * 80 + "\n")
+    print("=" * 84 + "\n")
     return yaml_path
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Pipeline de Engenharia de Dados (Construction-PPE + Roboflow + CLAHE)")
+    parser = argparse.ArgumentParser(description="Pipeline de Engenharia de Dados (Construction-PPE + Roboflow + Chapian + CLAHE)")
     parser.add_argument("--apply-clahe", action="store_true", default=True, help="Aplica redimensionamento 640x640 e CLAHE no canal L (CIE LAB) (ativo por padrão)")
     parser.add_argument("--no-clahe", action="store_true", help="Desativa a aplicação do filtro CLAHE")
-    parser.add_argument("--clip-limit", type=float, default=3.0, help="Limite de corte (clipLimit) do CLAHE (padrão: 3.0)")
+    parser.add_argument("--clip-limit", type=float, default=2.0, help="Limite de corte (clipLimit) do CLAHE (padrão: 2.0)")
+    parser.add_argument("--manter-incompletas-rf", action="store_true", help="Mantém todas as 398 imagens da Base 2 mesmo sem anotação de Person")
     parser.add_argument("--no-pause", action="store_true", help="Não pausa o terminal ao finalizar")
     args = parser.parse_args()
 
     erro_ocorreu = False
     try:
         usar_clahe = False if args.no_clahe else args.apply_clahe
-        build_unified_dataset(use_clahe=usar_clahe, clip_limit=args.clip_limit)
+        build_unified_dataset(
+            use_clahe=usar_clahe,
+            clip_limit=args.clip_limit,
+            filtrar_incompletas_rf=not args.manter_incompletas_rf,
+        )
     except Exception as exc:
         erro_ocorreu = True
         print("\n" + "!" * 80)

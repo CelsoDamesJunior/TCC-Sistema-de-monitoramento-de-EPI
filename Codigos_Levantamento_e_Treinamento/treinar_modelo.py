@@ -2,7 +2,7 @@
 """
 Módulo: treinar_modelo.py
 Executa o treinamento supervisionado da arquitetura YOLOv26n sobre o dataset
-consolidado de EPIs (unified_tcc - 1.814 imagens e 4 classes NR-06 / NR-18).
+consolidado de EPIs (unified_tcc - 3 bases nativas YOLO .txt e 4 classes NR-06 / NR-18).
 
 Uso no terminal:
     1. Validação rápida pré-treino (Dry-Run):
@@ -97,7 +97,7 @@ def treinar_modelo(
     epocas=100,
     tamanho_imagem=640,
     tamanho_lote=16,
-    otimizador="SGD",
+    otimizador="auto",
     taxa_aprendizado=0.01,
     fator_lr_final=0.01,
     momento=0.937,
@@ -209,7 +209,7 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=100, help="Quantidade total de épocas")
     parser.add_argument("--imgsz", type=int, default=640, help="Dimensão espacial da imagem (padrão: 640)")
     parser.add_argument("--batch", type=int, default=16, help="Tamanho do lote por iteração")
-    parser.add_argument("--optimizer", type=str, default="SGD", help="Otimizador ('SGD', 'MuSGD', 'AdamW' ou 'auto')")
+    parser.add_argument("--optimizer", type=str, default="auto", help="Otimizador ('auto', 'MuSGD', 'AdamW' ou 'SGD')")
     parser.add_argument("--lr0", type=float, default=0.01, help="Taxa de aprendizado inicial")
     parser.add_argument("--lrf", type=float, default=0.01, help="Fração final da taxa de aprendizado")
     parser.add_argument("--momentum", type=float, default=0.937, help="Momento do otimizador")
@@ -244,7 +244,7 @@ if __name__ == "__main__":
         if not os.path.isdir(os.path.join(dataset_unified_dir, "images", "train")):
             print("  [*] Dataset consolidado 'unified_tcc' não localizado. Iniciando pipeline de preparação...")
             from preparar_dados import build_unified_dataset
-            caminho_encontrado = build_unified_dataset(use_clahe=True, clip_limit=3.0)
+            caminho_encontrado = build_unified_dataset(use_clahe=True, clip_limit=2.0)
 
         if caminho_encontrado and os.path.exists(caminho_encontrado):
             treinar_modelo(
