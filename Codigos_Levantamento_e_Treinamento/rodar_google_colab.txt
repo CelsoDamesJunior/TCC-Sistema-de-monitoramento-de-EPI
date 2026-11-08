@@ -8,4 +8,4 @@
 !python gerenciar_bases.py --action status --no-pause
 
 # 4. Treinar os modelos YOLOv8n e YOLO11n na GPU do Colab (100 épocas)
-!python treinar_modelo.py --model all --epochs 100 --batch 16 --imgsz 640 --device 0
+!python treinar_modelo.py --epochs 100 --batch 16 --imgsz 640 --device 0
