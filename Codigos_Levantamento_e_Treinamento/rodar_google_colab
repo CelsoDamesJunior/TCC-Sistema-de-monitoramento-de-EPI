@@ -1,0 +1,11 @@
+# 1. Baixar e validar as 4 bases (Construction-PPE + Roboflow 4.4k + Chapian + SH17)
+!python gerenciar_bases.py --action download --dataset all --no-pause
+
+# 2. Unificar as 4 bases em unified_tcc (4.534 imagens únicas, 29.850 caixas, 4 classes)
+!python preparar_dados.py
+
+# 3. Verificar auditoria final das bases
+!python gerenciar_bases.py --action status --no-pause
+
+# 4. Treinar os modelos YOLOv8n e YOLO11n na GPU do Colab (100 épocas)
+!python treinar_modelo.py --model all --epochs 100 --batch 16 --imgsz 640 --device 0
