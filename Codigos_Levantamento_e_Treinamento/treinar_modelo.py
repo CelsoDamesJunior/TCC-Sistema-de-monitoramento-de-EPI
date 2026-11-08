@@ -2,7 +2,13 @@
 """
 Módulo: treinar_modelo.py
 Executa o treinamento supervisionado da arquitetura YOLOv26n sobre o dataset
-consolidado de EPIs (unified_tcc - 3 bases nativas YOLO .txt e 4 classes NR-06 / NR-18).
+consolidado de EPIs (unified_tcc - 4 bases nativas YOLO .txt e 4 classes NR-06 / NR-18).
+
+Otimizações de Convergência (Google Colab / GPU):
+  - Carregamento direto dos pesos pré-treinados oficiais (yolo26n.pt com suporte a yolo26n.yaml).
+  - Desativação de aumentações destrutivas para objetos pequenos (Safety-Shoes / Hardhat):
+    erasing=0.0 (evita apagar botas/capacetes aleatoriamente) e auto_augment=None.
+  - Agendador de taxa de aprendizado cosseno (cos_lr=True) e refinamento espacial (close_mosaic=20).
 
 Uso no terminal:
     1. Validação rápida pré-treino (Dry-Run):
@@ -49,7 +55,8 @@ except ImportError as exc_imp:
 def validar_e_corrigir_caminho_yaml(caminho_yaml, pasta_atual):
     """
     Lê o manifesto data.yaml e verifica se a chave 'path' aponta para um diretório válido
-    no ambiente de execução atual, atualizando-o automaticamente caso necessário.
+    no ambiente de execução atual (Windows local ou Linux no Google Colab),
+    atualizando-o automaticamente caso necessário.
     """
     with open(caminho_yaml, "r", encoding="utf-8") as f:
         dados_yaml = yaml.safe_load(f) or {}
@@ -104,6 +111,7 @@ def treinar_modelo(
     decaimento_peso=0.0005,
     mosaico=1.0,
     fechar_mosaico=20,
+    apagamento_aleatorio=0.0,
     cosseno_lr=True,
     paciencia=30,
     dispositivo=None,
@@ -142,17 +150,17 @@ def treinar_modelo(
 
     dispositivo_final, cuda_disponivel = resolver_dispositivo(dispositivo)
 
-    print("\n" + "=" * 80)
+    print("\n" + "=" * 84)
     print("  CONFIGURAÇÃO E EXECUÇÃO DO TREINAMENTO SUPERVISIONADO (YOLOv26n)")
-    print("=" * 80)
+    print("=" * 84)
     print(f"  -> Arquitetura : {arquivo_arquitetura}")
     print(f"  -> Pesos Base  : {pesos_iniciais}")
     print(f"  -> Manifesto   : {caminho_yaml}")
     print(f"  -> Pasta Dados : {pasta_banco}")
     print(f"  -> Imagens     : {n_tr + n_va + n_te} totais (Treino: {n_tr} | Val: {n_va} | Teste: {n_te})")
     print(f"  -> Dispositivo : {dispositivo_final} (GPU CUDA ativa: {cuda_disponivel})")
-    print(f"  -> Parâmetros  : epochs={epocas}, batch={tamanho_lote}, imgsz={tamanho_imagem}, optimizer={otimizador}, lr0={taxa_aprendizado}, cos_lr={cosseno_lr}, patience={paciencia}")
-    print("-" * 80 + "\n")
+    print(f"  -> Parâmetros  : epochs={epocas}, batch={tamanho_lote}, imgsz={tamanho_imagem}, optimizer={otimizador}, lr0={taxa_aprendizado}, cos_lr={cosseno_lr}, erasing={apagamento_aleatorio}, patience={paciencia}")
+    print("-" * 84 + "\n")
 
     if (n_tr + n_va) == 0:
         raise RuntimeError(
@@ -160,18 +168,19 @@ def treinar_modelo(
             "Execute previamente: python gerenciar_bases.py --action prepare --apply-clahe"
         )
 
-    modelo = YOLO(arquivo_arquitetura).load(pesos_iniciais)
+    # Carrega o checkpoint pré-treinado preservando ckpt_path e a topologia oficial yolo26n.yaml
+    modelo = YOLO(pesos_iniciais)
     modelo.info(detailed=False, verbose=True)
 
     if apenas_validar:
-        print("\n" + "=" * 80)
+        print("\n" + "=" * 84)
         print("  [OK] VALIDAÇÃO PRÉ-TREINO (DRY-RUN) CONCLUÍDA COM SUCESSO")
-        print("=" * 80)
+        print("=" * 84)
         print(f"  -> Pasta do banco : {pasta_banco}")
         print(f"  -> Partições      : Treino={n_tr} | Validação={n_va} | Teste={n_te} (Total={n_tr + n_va + n_te} imagens)")
         print(f"  -> Total classes  : {dados_yaml.get('nc')}")
         print(f"  -> Classes        : {dados_yaml.get('names')}")
-        print("=" * 80 + "\n")
+        print("=" * 84 + "\n")
         return modelo
 
     resultados = modelo.train(
@@ -187,6 +196,14 @@ def treinar_modelo(
         cos_lr=cosseno_lr,
         mosaic=mosaico,
         close_mosaic=fechar_mosaico,
+        erasing=apagamento_aleatorio,
+        auto_augment=None,
+        hsv_h=0.015,
+        hsv_s=0.5,
+        hsv_v=0.3,
+        scale=0.5,
+        translate=0.1,
+        fliplr=0.5,
         patience=paciencia,
         save=True,
         project=pasta_saida,
@@ -216,6 +233,7 @@ if __name__ == "__main__":
     parser.add_argument("--weight-decay", type=float, default=0.0005, help="Decaimento de peso (regularização L2)")
     parser.add_argument("--mosaic", type=float, default=1.0, help="Probabilidade da aumentação Mosaic (0.0 a 1.0)")
     parser.add_argument("--close-mosaic", type=int, default=20, help="Épocas finais com Mosaic desativado para refinamento")
+    parser.add_argument("--erasing", type=float, default=0.0, help="Probabilidade de apagamento aleatório (padrão: 0.0 para preservar Safety-Shoes)")
     parser.add_argument("--cos-lr", action="store_true", default=True, help="Ativa agendador cosseno de taxa de aprendizado (ativo por padrão)")
     parser.add_argument("--patience", type=int, default=30, help="Limite de épocas sem melhoria para parada antecipada")
     parser.add_argument("--device", type=str, default=None, help="Dispositivo de execução ('0' para GPU ou 'cpu')")
@@ -244,7 +262,7 @@ if __name__ == "__main__":
         if not os.path.isdir(os.path.join(dataset_unified_dir, "images", "train")):
             print("  [*] Dataset consolidado 'unified_tcc' não localizado. Iniciando pipeline de preparação...")
             from preparar_dados import build_unified_dataset
-            caminho_encontrado = build_unified_dataset(use_clahe=True, clip_limit=2.0)
+            caminho_encontrado = build_unified_dataset(use_clahe=True, clip_limit=1.5)
 
         if caminho_encontrado and os.path.exists(caminho_encontrado):
             treinar_modelo(
@@ -259,6 +277,7 @@ if __name__ == "__main__":
                 decaimento_peso=args.weight_decay,
                 mosaico=args.mosaic,
                 fechar_mosaico=args.close_mosaic,
+                apagamento_aleatorio=args.erasing,
                 cosseno_lr=args.cos_lr,
                 paciencia=args.patience,
                 dispositivo=args.device,

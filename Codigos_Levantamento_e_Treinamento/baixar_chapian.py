@@ -79,6 +79,38 @@ def corrigir_particoes_chapian(diretorio_chapian):
                 shutil.move(caminho_lbl, os.path.join(pasta_valid_lbl, f"{nome_base}.txt"))
 
 
+def normalizar_labels_5_colunas_chapian(diretorio_chapian):
+    """Converte eventuais linhas poligonais (> 5 colunas) em caixas delimitadoras YOLO de 5 colunas."""
+    for sp in ["train", "valid", "test"]:
+        pasta_lbl = os.path.join(diretorio_chapian, sp, "labels")
+        if not os.path.isdir(pasta_lbl):
+            continue
+        for arq_lbl in glob.glob(os.path.join(pasta_lbl, "*.txt")):
+            with open(arq_lbl, "r", encoding="utf-8") as f:
+                linhas = f.readlines()
+            novas = []
+            alterado = False
+            for linha in linhas:
+                partes = linha.strip().split()
+                if not partes:
+                    continue
+                if len(partes) > 5:
+                    cid = int(partes[0])
+                    vals = [float(v) for v in partes[1:]]
+                    xs = vals[0::2]
+                    ys = vals[1::2]
+                    x0, x1 = max(0.0, min(xs)), min(1.0, max(xs))
+                    y0, y1 = max(0.0, min(ys)), min(1.0, max(ys))
+                    xc, yc, bw, bh = (x0 + x1) / 2.0, (y0 + y1) / 2.0, x1 - x0, y1 - y0
+                    novas.append(f"{cid} {xc:.6f} {yc:.6f} {bw:.6f} {bh:.6f}\n")
+                    alterado = True
+                elif len(partes) == 5:
+                    novas.append(linha if linha.endswith("\n") else linha + "\n")
+            if alterado:
+                with open(arq_lbl, "w", encoding="utf-8") as fw:
+                    fw.writelines(novas)
+
+
 def contar_imagens_chapian(diretorio_chapian):
     """Retorna a contagem (total, treino, validacao, teste) de imagens no diretório chapian-ppe."""
     if not os.path.isdir(diretorio_chapian):
@@ -95,7 +127,11 @@ def baixar_via_huggingface(pasta_destino, destino_zip=None):
     print(f"  [*] Baixando Base 3 diretamente do espelho Hugging Face ({REPOSITORIO_HF_CHAPIAN})...")
     url_api = f"https://huggingface.co/api/datasets/{REPOSITORIO_HF_CHAPIAN}"
     dados = json.loads(urllib.request.urlopen(url_api).read().decode("utf-8"))
-    arquivos = [f["rfilename"] for f in dados.get("siblings", []) if not f["rfilename"].startswith(".")]
+    arquivos = [
+        f["rfilename"]
+        for f in dados.get("siblings", [])
+        if not f["rfilename"].startswith(".") and not f["rfilename"].endswith((".pt", ".cache"))
+    ]
 
     os.makedirs(pasta_destino, exist_ok=True)
     concluidos = [0]
@@ -117,12 +153,15 @@ def baixar_via_huggingface(pasta_destino, destino_zip=None):
     print()
 
     corrigir_particoes_chapian(pasta_destino)
+    normalizar_labels_5_colunas_chapian(pasta_destino)
 
     if destino_zip:
         os.makedirs(os.path.dirname(destino_zip), exist_ok=True)
         with zipfile.ZipFile(destino_zip, "w", zipfile.ZIP_DEFLATED) as zf:
             for raiz, _, lista_arquivos in os.walk(pasta_destino):
                 for nome_arq in sorted(lista_arquivos):
+                    if nome_arq.endswith((".pt", ".cache")):
+                        continue
                     caminho_completo = os.path.join(raiz, nome_arq)
                     caminho_rel = os.path.relpath(caminho_completo, pasta_destino).replace("\\", "/")
                     zf.write(caminho_completo, caminho_rel)

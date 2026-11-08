@@ -1,6 +1,7 @@
 python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_banco_unico.py" --no-pause
 python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_roboflow.py" --no-pause
 python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_chapian.py" --no-pause
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_sh17.py" --no-pause
 python "Base e treinamento/Codigos_Levantamento_e_Treinamento/preparar_dados.py" --apply-clahe --no-pause
 python "Base e treinamento/Codigos_Levantamento_e_Treinamento/gerenciar_bases.py" --action status --no-pause
 python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --dry-run --no-pause

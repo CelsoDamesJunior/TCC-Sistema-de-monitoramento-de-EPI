@@ -2,7 +2,7 @@
 """
 Módulo: gerenciar_bases.py
 Orquestrador de Linha de Comando (CLI) para Gerenciamento e Auditoria das Bases de Dados de EPI.
-Permite verificar o status detalhado (--action status), adquirir as bases (--action download),
+Permite verificar o status detalhado (--action status), adquirir as 4 bases (--action download),
 construir o dataset consolidado unified_tcc com CLAHE (--action prepare --apply-clahe) ou
 executar o pipeline completo (--action all --apply-clahe).
 
@@ -21,15 +21,18 @@ from preparar_dados import (
     download_single_dataset,
     ensure_roboflow_dataset,
     ensure_chapian_dataset,
+    ensure_sh17_dataset,
     build_unified_dataset,
     corrigir_pasta_aninhada,
     pausar_se_interativo,
     CONSTRUCTION_PPE_URL,
     ROBOFLOW_RELEASE_URL,
     CHAPIAN_RELEASE_URL,
+    SH17_RELEASE_URL,
     CONSTRUCTION_PPE_DOCS,
     ROBOFLOW_SAFETY_URL,
     CHAPIAN_DOCS_URL,
+    SH17_DOCS_URL,
 )
 from baixar_roboflow import download_dataset as download_roboflow_dataset
 
@@ -56,20 +59,22 @@ def contar_caixas_pasta(labels_root, splits):
 
 
 def print_summary():
-    """Exibe o relatório consolidado de integridade das bases de dados no padrão YOLO (.txt)."""
+    """Exibe o relatório consolidado de integridade das 4 bases de dados no padrão YOLO (.txt)."""
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     datasets_dir = os.path.join(base_dir, 'datasets')
 
-    print("\n" + "=" * 88)
-    print("       RELATÓRIO DE STATUS DAS BASES DE DADOS DE EPI (PADRÃO YOLO TXT)")
-    print("=" * 88)
+    print("\n" + "=" * 92)
+    print("       RELATÓRIO DE STATUS DAS 4 BASES DE DADOS DE EPI (PADRÃO YOLO TXT)")
+    print("=" * 92)
     print(f"  Documentação Base 1  : {CONSTRUCTION_PPE_DOCS}")
     print(f"  Release Base 1 (.zip): {CONSTRUCTION_PPE_URL}")
     print(f"  Documentação Base 2  : {ROBOFLOW_SAFETY_URL}")
     print(f"  Release Base 2 (.zip): {ROBOFLOW_RELEASE_URL}")
     print(f"  Documentação Base 3  : {CHAPIAN_DOCS_URL}")
     print(f"  Release Base 3 (.zip): {CHAPIAN_RELEASE_URL}")
-    print("-" * 88)
+    print(f"  Documentação Base 4  : {SH17_DOCS_URL}")
+    print(f"  Release Base 4 (.zip): {SH17_RELEASE_URL}")
+    print("-" * 92)
 
     # 1. Base Principal Bruta (Ultralytics Construction-PPE)
     raw_ppe = os.path.join(datasets_dir, 'raw', 'construction-ppe')
@@ -86,19 +91,19 @@ def print_summary():
     else:
         print("[ ] Base 1 - Ultralytics Construction-PPE (Bruta): Não localizada.")
 
-    # 2. Base Complementar 1 Bruta (Roboflow Construction Site Safety)
+    # 2. Base Complementar 1 Bruta (Roboflow Construction PPE - ppe-fruwx)
     raw_rf = os.path.join(datasets_dir, 'raw', 'roboflow', 'Construction-Site-Safety-1')
     if os.path.exists(raw_rf):
         rf_tr = len(glob.glob(os.path.join(raw_rf, 'train', 'images', '*.*')))
         rf_va = len(glob.glob(os.path.join(raw_rf, 'valid', 'images', '*.*')))
         rf_te = len(glob.glob(os.path.join(raw_rf, 'test', 'images', '*.*')))
         tot_rf = rf_tr + rf_va + rf_te
-        status_b2 = "[OK]" if tot_rf == 398 else "[!]"
-        print(f"{status_b2} Base 2 - Roboflow Construction Site Safety (Bruta YOLO TXT - 17 Classes):")
+        status_b2 = "[OK]" if tot_rf == 4460 else "[!]"
+        print(f"{status_b2} Base 2 - Roboflow Construction PPE ppe-fruwx (Bruta YOLO TXT - 8 Classes):")
         print(f"     - Localização: {raw_rf}")
-        print(f"     - Imagens:     {tot_rf} (Treino: {rf_tr} | Val: {rf_va} | Teste: {rf_te}) [Esperado: 398]")
+        print(f"     - Imagens:     {tot_rf} (Treino: {rf_tr} | Val: {rf_va} | Teste: {rf_te}) [Esperado: 4.460]")
     else:
-        print("[ ] Base 2 - Roboflow Construction Site Safety (Bruta): Não localizada.")
+        print("[ ] Base 2 - Roboflow Construction PPE (Bruta): Não localizada.")
 
     # 3. Base Complementar 2 Bruta (Chapian Construction Site PPE Detection)
     raw_ch = os.path.join(datasets_dir, 'raw', 'chapian-ppe')
@@ -114,7 +119,21 @@ def print_summary():
     else:
         print("[ ] Base 3 - Chapian Construction Site PPE (Bruta): Não localizada.")
 
-    # 4. Dataset Consolidado e Padronizado (unified_tcc - 4 Classes NR-06 / NR-18)
+    # 4. Base Complementar 3 Bruta (SH17 Dataset - Human & PPE Detection)
+    raw_sh = os.path.join(datasets_dir, 'raw', 'sh17-ppe')
+    if os.path.exists(raw_sh):
+        sh_tr = len(glob.glob(os.path.join(raw_sh, 'train', 'images', '*.*')))
+        sh_va = len(glob.glob(os.path.join(raw_sh, 'valid', 'images', '*.*')))
+        sh_te = len(glob.glob(os.path.join(raw_sh, 'test', 'images', '*.*')))
+        tot_sh = sh_tr + sh_va + sh_te
+        status_b4 = "[OK]" if tot_sh == 313 else "[!]"
+        print(f"{status_b4} Base 4 - SH17 PPE Dataset (Bruta YOLO TXT - 17 Classes):")
+        print(f"     - Localização: {raw_sh}")
+        print(f"     - Imagens:     {tot_sh} (Treino: {sh_tr} | Val: {sh_va} | Teste: {sh_te}) [Esperado: 313]")
+    else:
+        print("[ ] Base 4 - SH17 PPE Dataset (Bruta): Não localizada.")
+
+    # 5. Dataset Consolidado e Padronizado (unified_tcc - 4 Classes NR-06 / NR-18)
     unified_dir = os.path.join(datasets_dir, 'processed', 'unified_tcc')
     if os.path.exists(unified_dir):
         u_tr = len(glob.glob(os.path.join(unified_dir, 'images', 'train', '*.*')))
@@ -134,11 +153,11 @@ def print_summary():
         print("[ ] Dataset Consolidado (unified_tcc): Não construído.")
         print("     -> Execute 'python gerenciar_bases.py --action prepare --apply-clahe' para construí-lo.")
 
-    print("=" * 88 + "\n")
+    print("=" * 92 + "\n")
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Gerenciador Central das Bases de EPI (Construction-PPE + Roboflow + Chapian)")
+    parser = argparse.ArgumentParser(description="Gerenciador Central das 4 Bases de EPI (Construction-PPE + Roboflow + Chapian + SH17)")
     parser.add_argument(
         "--action",
         type=str,
@@ -150,7 +169,7 @@ if __name__ == '__main__':
         "--apply-clahe",
         action="store_true",
         default=True,
-        help="Aplica redimensionamento 640x640 (INTER_AREA) e CLAHE no canal L (CIE LAB) (ativo por padrão)",
+        help="Aplica redimensionamento 640x640 (INTER_AREA) e CLAHE suave no canal L (CIE LAB) (ativo por padrão)",
     )
     parser.add_argument(
         "--no-clahe",
@@ -160,13 +179,13 @@ if __name__ == '__main__':
     parser.add_argument(
         "--clip-limit",
         type=float,
-        default=2.0,
-        help="Limite de corte (clipLimit) do CLAHE (padrão: 2.0)",
+        default=1.5,
+        help="Limite de corte (clipLimit) do CLAHE (padrão suave: 1.5)",
     )
     parser.add_argument(
         "--manter-incompletas-rf",
         action="store_true",
-        help="Mantém todas as 398 imagens da Base 2 mesmo sem anotação de Person",
+        help="Mantém todas as imagens da Base 2 mesmo sem anotação de Person",
     )
     parser.add_argument(
         "--api-key",
@@ -190,6 +209,7 @@ if __name__ == '__main__':
             download_single_dataset(base_dir)
             ensure_roboflow_dataset(base_dir)
             ensure_chapian_dataset(base_dir)
+            ensure_sh17_dataset(base_dir)
             if args.api_key:
                 download_roboflow_dataset(api_key=args.api_key)
         if args.action in ["prepare", "all"]:
