@@ -1,4 +1,4 @@
-path: F:/TCC2/ProjetoFinal2/Base e treinamento/datasets/processed/unified_tcc
+path: C:/Apps/TCC 2/ProjetoFinal2/Base e treinamento/datasets/processed/unified_tcc
 train: images/train
 val: images/val
 test: images/test

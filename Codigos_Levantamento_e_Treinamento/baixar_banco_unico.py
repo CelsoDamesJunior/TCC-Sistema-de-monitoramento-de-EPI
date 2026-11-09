@@ -2,8 +2,7 @@
 """
 Módulo: baixar_banco_unico.py
 Script utilitário para aquisição e validação da Base 1 (Ultralytics Construction-PPE),
-composta por 1.416 imagens limpas (sem distorção de cisalhamento/shear, padronizadas em 640x640)
-e 9.781 caixas delimitadoras válidas nas 4 classes do projeto (9.775 em imagens com Person).
+composta por 1.416 imagens e 7.194 caixas delimitadoras válidas nas 4 classes do projeto.
 
 Fonte Oficial de Distribuição:
   - GitHub Releases: https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI/releases/download/v1.0.0/construction-ppe.zip
@@ -64,6 +63,22 @@ def contar_imagens_extraidas(extracted_dir):
     return (tr + va + te), tr, va, te
 
 
+def tentar_copiar_de_pasta_local(extracted_dir, zip_dest):
+    """Verifica a existência de cache local do pacote compactado ou da estrutura de diretórios no workspace."""
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    raiz_ws = os.path.dirname(base_dir)
+    candidato_dir = os.path.join(raiz_ws, "Projeto_EPI", "datasets", "raw", "construction-ppe")
+    if os.path.isdir(candidato_dir):
+        tot, _, _, _ = contar_imagens_extraidas(candidato_dir)
+        if tot == 1416:
+            print(f"  [*] Sincronizando Base 1 (1.416 imagens) a partir do diretório local: {candidato_dir}")
+            if os.path.exists(extracted_dir):
+                shutil.rmtree(extracted_dir)
+            shutil.copytree(candidato_dir, extracted_dir)
+            return True
+    return False
+
+
 def baixar_arquivo_zip(extrair=True, forcar_download=False):
     """Realiza o download, a extração e a verificação de integridade da Base 1 (Construction-PPE)."""
     pasta_script = os.path.dirname(os.path.abspath(__file__))
@@ -72,7 +87,6 @@ def baixar_arquivo_zip(extrair=True, forcar_download=False):
     os.makedirs(raw_dir, exist_ok=True)
 
     zip_dest = os.path.join(raw_dir, "construction-ppe.zip")
-    zip_pacote_release = os.path.join(base_dir, "Pacote_Release_GitHub", "construction-ppe.zip")
     extracted_dir = os.path.join(raw_dir, "construction-ppe")
 
     print("\n" + "=" * 75)
@@ -90,13 +104,16 @@ def baixar_arquivo_zip(extrair=True, forcar_download=False):
         print("=" * 75)
         return zip_dest
 
-    for zip_candidato in [zip_dest, zip_pacote_release]:
-        if os.path.exists(zip_candidato) and os.path.getsize(zip_candidato) > 50 * 1024 * 1024 and not forcar_download:
-            tam_mb = os.path.getsize(zip_candidato) / (1024 * 1024)
-            print(f"  [OK] Pacote local '{os.path.basename(zip_candidato)}' localizado ({tam_mb:.2f} MB).")
-            if zip_candidato != zip_dest:
-                shutil.copy2(zip_candidato, zip_dest)
-            break
+    if not forcar_download and tentar_copiar_de_pasta_local(extracted_dir, zip_dest):
+        tot, tr, va, te = contar_imagens_extraidas(extracted_dir)
+        if tot == 1416:
+            print(f"  [OK] Base 1 sincronizada ({tot} imagens).")
+            print("=" * 75)
+            return zip_dest
+
+    if os.path.exists(zip_dest) and os.path.getsize(zip_dest) > 100 * 1024 * 1024 and not forcar_download:
+        tam_mb = os.path.getsize(zip_dest) / (1024 * 1024)
+        print(f"  [OK] Pacote local 'construction-ppe.zip' localizado ({tam_mb:.2f} MB).")
     else:
         def _progresso(blocos, tam_bloco, tam_total):
             if tam_total > 0:
@@ -117,9 +134,6 @@ def baixar_arquivo_zip(extrair=True, forcar_download=False):
                 ) from e
 
     if extrair:
-        if os.path.exists(extracted_dir):
-            shutil.rmtree(extracted_dir)
-        os.makedirs(extracted_dir, exist_ok=True)
         print(f"  [*] Extraindo conteúdo para: {extracted_dir} ...")
         with zipfile.ZipFile(zip_dest, "r") as zf:
             zf.extractall(extracted_dir)

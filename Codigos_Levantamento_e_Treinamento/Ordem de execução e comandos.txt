@@ -3,26 +3,20 @@
 # Repositório GitHub Oficial: https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI
 # ==============================================================================
 
-# Passo 1: Baixar e validar a Base 1 Principal (1.416 imagens limpas sem shear via GitHub Release v1.0.0)
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_banco_unico.py" --no-pause
+# Passo 1: Baixar e validar a Base 1 Principal (1.416 imagens e 7.194 caixas via GitHub Release v1.0.0)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_banco_unico.py"
 
-# Passo 2: Baixar e validar a Base 2 Complementar 1 (Roboflow Construction PPE ppe-fruwx - 4.460 imagens via GitHub Release v1.0.0)
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_roboflow.py" --no-pause
+# Passo 2: Baixar e validar a Base 2 Complementar (398 imagens e 580 caixas via GitHub Release v1.0.0)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_roboflow.py"
 
-# Passo 3: Baixar e validar a Base 3 Complementar 2 (Chapian PPE Detection - 200 imagens via GitHub Release / Hugging Face)
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_chapian.py" --no-pause
+# Passo 3 (Obrigatório antes de treinar): Construir o dataset consolidado unified_tcc (1.814 imagens, 7.774 caixas, deduplicação MD5 e equalização CLAHE 640x640)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/preparar_dados.py" --apply-clahe
 
-# Passo 4: Baixar e validar a Base 4 Complementar 3 (SH17 PPE Dataset - 313 imagens completas nas 4 classes via GitHub Release / Hugging Face)
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_sh17.py" --no-pause
+# Passo 4: Auditar o status completo das bases e contagens de caixas por classe (1.814 imagens / 7.774 caixas)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/gerenciar_bases.py" --action status
 
-# Passo 5 (Obrigatório antes de treinar): Construir o dataset consolidado unified_tcc (deduplicação MD5, filtro anti-falso-negativo e equalização CLAHE 640x640 suave)
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/preparar_dados.py" --apply-clahe --no-pause
+# Passo 5: Validar o carregamento do modelo YOLOv26n (260 camadas, 708 tensores) e o manifesto data.yaml
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --dry-run
 
-# Passo 6: Auditar o status completo das 4 bases e contagens de caixas por classe
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/gerenciar_bases.py" --action status --no-pause
-
-# Passo 7: Validar o carregamento do modelo YOLOv26n e o manifesto data.yaml
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --dry-run --no-pause
-
-# Passo 8: Iniciar o treinamento supervisionado completo no Google Colab / GPU (100 épocas, imgsz=640, batch=16, optimizer=auto, cos_lr=True, erasing=0.0)
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --epochs 100 --imgsz 640 --batch 16 --optimizer auto --no-pause
+# Passo 6: Iniciar o treinamento supervisionado completo (100 épocas, imgsz=640, batch=16, SGD com decaimento cosseno cos_lr=True)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --epochs 100 --imgsz 640 --batch 16
