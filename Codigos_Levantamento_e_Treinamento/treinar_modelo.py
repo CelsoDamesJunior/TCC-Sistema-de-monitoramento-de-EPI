@@ -2,7 +2,13 @@
 """
 Módulo: treinar_modelo.py
 Executa o treinamento supervisionado da arquitetura YOLOv26n sobre o dataset
-consolidado de EPIs (unified_tcc - 1.814 imagens e 4 classes NR-06 / NR-18).
+consolidado de EPIs (unified_tcc - 4 bases nativas YOLO .txt e 4 classes NR-06 / NR-18).
+
+Otimizações de Convergência (Google Colab / GPU):
+  - Carregamento direto dos pesos pré-treinados oficiais (yolo26n.pt com suporte a yolo26n.yaml).
+  - Desativação de aumentações destrutivas para objetos pequenos (Safety-Shoes / Hardhat):
+    erasing=0.0 (evita apagar botas/capacetes aleatoriamente) e auto_augment=None.
+  - Agendador de taxa de aprendizado cosseno (cos_lr=True) e refinamento espacial (close_mosaic=20).
 
 Uso no terminal:
     1. Validação rápida pré-treino (Dry-Run):
@@ -49,7 +55,8 @@ except ImportError as exc_imp:
 def validar_e_corrigir_caminho_yaml(caminho_yaml, pasta_atual):
     """
     Lê o manifesto data.yaml e verifica se a chave 'path' aponta para um diretório válido
-    no ambiente de execução atual, atualizando-o automaticamente caso necessário.
+    no ambiente de execução atual (Windows local ou Linux no Google Colab),
+    atualizando-o automaticamente caso necessário.
     """
     with open(caminho_yaml, "r", encoding="utf-8") as f:
         dados_yaml = yaml.safe_load(f) or {}
@@ -95,20 +102,23 @@ def resolver_dispositivo(dispositivo):
 def treinar_modelo(
     caminho_yaml,
     epocas=100,
-    tamanho_imagem=640,
+    tamanho_imagem=800,
     tamanho_lote=16,
-    otimizador="SGD",
+    otimizador="auto",
     taxa_aprendizado=0.01,
     fator_lr_final=0.01,
     momento=0.937,
     decaimento_peso=0.0005,
     mosaico=1.0,
     fechar_mosaico=20,
+    copiar_colar=0.3,
+    mistura_imagens=0.1,
+    apagamento_aleatorio=0.0,
     cosseno_lr=True,
     paciencia=30,
     dispositivo=None,
     pasta_saida=None,
-    nome_experimento="ppe_detection_model",
+    nome_experimento="ppe_detection_model_v2",
     apenas_validar=False,
 ):
     """
@@ -142,17 +152,18 @@ def treinar_modelo(
 
     dispositivo_final, cuda_disponivel = resolver_dispositivo(dispositivo)
 
-    print("\n" + "=" * 80)
+    print("\n" + "=" * 84)
     print("  CONFIGURAÇÃO E EXECUÇÃO DO TREINAMENTO SUPERVISIONADO (YOLOv26n)")
-    print("=" * 80)
+    print("=" * 84)
     print(f"  -> Arquitetura : {arquivo_arquitetura}")
     print(f"  -> Pesos Base  : {pesos_iniciais}")
     print(f"  -> Manifesto   : {caminho_yaml}")
     print(f"  -> Pasta Dados : {pasta_banco}")
     print(f"  -> Imagens     : {n_tr + n_va + n_te} totais (Treino: {n_tr} | Val: {n_va} | Teste: {n_te})")
     print(f"  -> Dispositivo : {dispositivo_final} (GPU CUDA ativa: {cuda_disponivel})")
-    print(f"  -> Parâmetros  : epochs={epocas}, batch={tamanho_lote}, imgsz={tamanho_imagem}, optimizer={otimizador}, lr0={taxa_aprendizado}, cos_lr={cosseno_lr}, patience={paciencia}")
-    print("-" * 80 + "\n")
+    print(f"  -> Experimento : {nome_experimento} (em {pasta_saida})")
+    print(f"  -> Parâmetros  : epochs={epocas}, batch={tamanho_lote}, imgsz={tamanho_imagem}, optimizer={otimizador}, cos_lr={cosseno_lr}, copy_paste={copiar_colar}, mixup={mistura_imagens}, erasing={apagamento_aleatorio}, patience={paciencia}")
+    print("-" * 84 + "\n")
 
     if (n_tr + n_va) == 0:
         raise RuntimeError(
@@ -160,18 +171,19 @@ def treinar_modelo(
             "Execute previamente: python gerenciar_bases.py --action prepare --apply-clahe"
         )
 
-    modelo = YOLO(arquivo_arquitetura).load(pesos_iniciais)
+    # Carrega o checkpoint pré-treinado preservando ckpt_path e a topologia oficial yolo26n.yaml
+    modelo = YOLO(pesos_iniciais)
     modelo.info(detailed=False, verbose=True)
 
     if apenas_validar:
-        print("\n" + "=" * 80)
+        print("\n" + "=" * 84)
         print("  [OK] VALIDAÇÃO PRÉ-TREINO (DRY-RUN) CONCLUÍDA COM SUCESSO")
-        print("=" * 80)
+        print("=" * 84)
         print(f"  -> Pasta do banco : {pasta_banco}")
         print(f"  -> Partições      : Treino={n_tr} | Validação={n_va} | Teste={n_te} (Total={n_tr + n_va + n_te} imagens)")
         print(f"  -> Total classes  : {dados_yaml.get('nc')}")
         print(f"  -> Classes        : {dados_yaml.get('names')}")
-        print("=" * 80 + "\n")
+        print("=" * 84 + "\n")
         return modelo
 
     resultados = modelo.train(
@@ -187,6 +199,16 @@ def treinar_modelo(
         cos_lr=cosseno_lr,
         mosaic=mosaico,
         close_mosaic=fechar_mosaico,
+        copy_paste=copiar_colar,
+        mixup=mistura_imagens,
+        erasing=apagamento_aleatorio,
+        auto_augment=None,
+        hsv_h=0.015,
+        hsv_s=0.5,
+        hsv_v=0.3,
+        scale=0.5,
+        translate=0.1,
+        fliplr=0.5,
         patience=paciencia,
         save=True,
         project=pasta_saida,
@@ -207,20 +229,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Treinamento supervisionado do modelo YOLOv26n para detecção de EPIs")
     parser.add_argument("--data", type=str, default="", help="Caminho para o arquivo data.yaml")
     parser.add_argument("--epochs", type=int, default=100, help="Quantidade total de épocas")
-    parser.add_argument("--imgsz", type=int, default=640, help="Dimensão espacial da imagem (padrão: 640)")
+    parser.add_argument("--imgsz", type=int, default=800, help="Dimensão espacial da imagem (padrão: 800 para objetos pequenos; use 640 para baseline)")
     parser.add_argument("--batch", type=int, default=16, help="Tamanho do lote por iteração")
-    parser.add_argument("--optimizer", type=str, default="SGD", help="Otimizador ('SGD', 'MuSGD', 'AdamW' ou 'auto')")
+    parser.add_argument("--optimizer", type=str, default="auto", help="Otimizador ('auto', 'MuSGD', 'AdamW' ou 'SGD')")
     parser.add_argument("--lr0", type=float, default=0.01, help="Taxa de aprendizado inicial")
     parser.add_argument("--lrf", type=float, default=0.01, help="Fração final da taxa de aprendizado")
     parser.add_argument("--momentum", type=float, default=0.937, help="Momento do otimizador")
     parser.add_argument("--weight-decay", type=float, default=0.0005, help="Decaimento de peso (regularização L2)")
     parser.add_argument("--mosaic", type=float, default=1.0, help="Probabilidade da aumentação Mosaic (0.0 a 1.0)")
     parser.add_argument("--close-mosaic", type=int, default=20, help="Épocas finais com Mosaic desativado para refinamento")
+    parser.add_argument("--copy-paste", type=float, default=0.3, help="Probabilidade de Copy-Paste (padrão: 0.3 para reforçar objetos pequenos como Safety-Shoes)")
+    parser.add_argument("--mixup", type=float, default=0.1, help="Probabilidade de MixUp (padrão: 0.1)")
+    parser.add_argument("--erasing", type=float, default=0.0, help="Probabilidade de apagamento aleatório (padrão: 0.0 para preservar Safety-Shoes)")
     parser.add_argument("--cos-lr", action="store_true", default=True, help="Ativa agendador cosseno de taxa de aprendizado (ativo por padrão)")
     parser.add_argument("--patience", type=int, default=30, help="Limite de épocas sem melhoria para parada antecipada")
     parser.add_argument("--device", type=str, default=None, help="Dispositivo de execução ('0' para GPU ou 'cpu')")
     parser.add_argument("--project", type=str, default=None, help="Diretório de saída dos artefatos de treinamento")
-    parser.add_argument("--name", type=str, default="ppe_detection_model", help="Identificador do experimento")
+    parser.add_argument("--name", type=str, default="ppe_detection_model_v2", help="Identificador do experimento (padrão: ppe_detection_model_v2 para preservar o baseline)")
     parser.add_argument("--dry-run", action="store_true", help="Valida a arquitetura e o dataset sem iniciar o treinamento")
     parser.add_argument("--no-pause", action="store_true", help="Não pausa o terminal ao finalizar")
     args = parser.parse_args()
@@ -244,7 +269,7 @@ if __name__ == "__main__":
         if not os.path.isdir(os.path.join(dataset_unified_dir, "images", "train")):
             print("  [*] Dataset consolidado 'unified_tcc' não localizado. Iniciando pipeline de preparação...")
             from preparar_dados import build_unified_dataset
-            caminho_encontrado = build_unified_dataset(use_clahe=True, clip_limit=3.0)
+            caminho_encontrado = build_unified_dataset(use_clahe=True, clip_limit=1.5, target_resolution=args.imgsz)
 
         if caminho_encontrado and os.path.exists(caminho_encontrado):
             treinar_modelo(
@@ -259,6 +284,9 @@ if __name__ == "__main__":
                 decaimento_peso=args.weight_decay,
                 mosaico=args.mosaic,
                 fechar_mosaico=args.close_mosaic,
+                copiar_colar=args.copy_paste,
+                mistura_imagens=args.mixup,
+                apagamento_aleatorio=args.erasing,
                 cosseno_lr=args.cos_lr,
                 paciencia=args.patience,
                 dispositivo=args.device,

@@ -1,22 +1,49 @@
 # ==============================================================================
 # ROTEIRO DE EXECUÇÃO PASSO A PASSO E COMANDOS (LEVANTAMENTO E TREINAMENTO)
 # Repositório GitHub Oficial: https://github.com/CelsoDamesJunior/TCC-Sistema-de-monitoramento-de-EPI
+# Documentação Experimental Completa: REGISTRO_EXPERIMENTOS_TCC2.md
 # ==============================================================================
 
-# Passo 1: Baixar e validar a Base 1 Principal (1.416 imagens e 7.194 caixas via GitHub Release v1.0.0)
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_banco_unico.py"
+# ------------------------------------------------------------------------------
+# ETAPA 0 (NO GOOGLE COLAB): BACKUP DO EXPERIMENTO 1 (BASELINE 81,0% mAP@50)
+# ------------------------------------------------------------------------------
+# cp -r /content/TCC-Sistema-de-monitoramento-de-EPI/models/ppe_detection_model /content/TCC-Sistema-de-monitoramento-de-EPI/models/backup_exp1_81mAP
+# zip -r /content/backup_exp1_81mAP.zip /content/TCC-Sistema-de-monitoramento-de-EPI/models/ppe_detection_model
 
-# Passo 2: Baixar e validar a Base 2 Complementar (398 imagens e 580 caixas via GitHub Release v1.0.0)
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_roboflow.py"
+# ------------------------------------------------------------------------------
+# ETAPA 1: AQUISIÇÃO E VALIDAÇÃO DAS 4 BASES NATIVAS YOLO (.TXT)
+# ------------------------------------------------------------------------------
+# Passo 1: Baixar e validar a Base 1 Principal (1.416 imagens limpas sem shear via GitHub Release v1.0.0)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_banco_unico.py" --no-pause
 
-# Passo 3 (Obrigatório antes de treinar): Construir o dataset consolidado unified_tcc (1.814 imagens, 7.774 caixas, deduplicação MD5 e equalização CLAHE 640x640)
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/preparar_dados.py" --apply-clahe
+# Passo 2: Baixar e validar a Base 2 Complementar 1 (Roboflow Construction PPE ppe-fruwx - 4.460 imagens via GitHub Release v1.0.0)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_roboflow.py" --no-pause
 
-# Passo 4: Auditar o status completo das bases e contagens de caixas por classe (1.814 imagens / 7.774 caixas)
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/gerenciar_bases.py" --action status
+# Passo 3: Baixar e validar a Base 3 Complementar 2 (Chapian PPE Detection - 200 imagens via GitHub Release / Hugging Face)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_chapian.py" --no-pause
 
-# Passo 5: Validar o carregamento do modelo YOLOv26n (260 camadas, 708 tensores) e o manifesto data.yaml
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --dry-run
+# Passo 4: Baixar e validar a Base 4 Complementar 3 (SH17 PPE Dataset - 313 imagens completas nas 4 classes via GitHub Release / Hugging Face)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_sh17.py" --no-pause
 
-# Passo 6: Iniciar o treinamento supervisionado completo (100 épocas, imgsz=640, batch=16, SGD com decaimento cosseno cos_lr=True)
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --epochs 100 --imgsz 640 --batch 16
+# ------------------------------------------------------------------------------
+# ETAPA 2: PREPARAÇÃO E TREINAMENTO DO EXPERIMENTO 2 (OPÇÕES 1 E 2 ATIVADAS)
+#   - Opção 2: Filtro anti-falso-negativo de calçados na Base 2 (preserva 100% das 7.374 botinas em 3.396 imagens sem falsos negativos)
+#   - Opção 1: Resolução 800x800 + copy_paste=0.3 + mixup=0.1 para elevar o Recall de Safety-Shoes
+# ------------------------------------------------------------------------------
+# Passo 5: Construir o dataset consolidado unified_tcc (CLAHE 800x800 suave + filtro de calçados auditados)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/preparar_dados.py" --apply-clahe --imgsz 800 --no-pause
+
+# Passo 6: Auditar o status completo das 4 bases e contagens de caixas por classe
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/gerenciar_bases.py" --action status --no-pause
+
+# Passo 7: Validar o carregamento do modelo YOLOv26n e o manifesto data.yaml
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --dry-run --no-pause
+
+# Passo 8: Iniciar o treinamento supervisionado do Experimento 2 (salvo em models/ppe_detection_model_v2)
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --epochs 100 --imgsz 800 --batch 16 --copy-paste 0.3 --mixup 0.1 --optimizer auto --name ppe_detection_model_v2 --no-pause
+
+# ------------------------------------------------------------------------------
+# [OPCIONAL] COMANDOS PARA REPRODUZIR EXATAMENTE O EXPERIMENTO 1 (BASELINE 640x640 - 4.534 IMAGENS)
+# ------------------------------------------------------------------------------
+# python "Base e treinamento/Codigos_Levantamento_e_Treinamento/preparar_dados.py" --apply-clahe --imgsz 640 --manter-sem-calcado-rf --no-pause
+# python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --epochs 100 --imgsz 640 --batch 16 --copy-paste 0.0 --mixup 0.0 --optimizer auto --name ppe_detection_model --no-pause

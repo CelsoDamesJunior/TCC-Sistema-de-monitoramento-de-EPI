@@ -1,6 +1,8 @@
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_banco_unico.py"
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_roboflow.py"
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/preparar_dados.py" --apply-clahe
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/gerenciar_bases.py" --action status
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --dry-run
-python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --epochs 100 --imgsz 640 --batch 16
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_banco_unico.py" --no-pause
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_roboflow.py" --no-pause
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_chapian.py" --no-pause
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/baixar_sh17.py" --no-pause
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/preparar_dados.py" --apply-clahe --imgsz 800 --no-pause
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/gerenciar_bases.py" --action status --no-pause
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --dry-run --no-pause
+python "Base e treinamento/Codigos_Levantamento_e_Treinamento/treinar_modelo.py" --epochs 100 --imgsz 800 --batch 16 --copy-paste 0.3 --mixup 0.1 --optimizer auto --name ppe_detection_model_v2 --no-pause
